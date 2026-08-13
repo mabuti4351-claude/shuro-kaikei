@@ -94,6 +94,8 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 .tile.sel{border-color:var(--green);background:var(--green);color:#fff}
 .tile .g{display:block;font-size:11px;font-weight:400;opacity:.7;margin-top:2px}
 .tile.sel .g{opacity:.9}
+.tile.addtile{border-style:dashed;color:var(--sub);background:#fafbfc}
+.tile.addtile:hover{border-color:var(--green);color:var(--green-d);background:var(--green-l)}
 
 /* ===== グラフ ===== */
 .chart{width:100%;overflow-x:auto}
@@ -553,6 +555,31 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     </div>
   </section>
 </main>
+
+<!-- 新しい作業の追加モーダル -->
+<div class="modal" id="newJobModal">
+  <div class="box" style="max-width:420px">
+    <h3>＋ 新しい作業を追加</h3>
+    <p class="hint">ここで追加すると、そのまま今の入力に使えます。あとから設定画面で名前を直すこともできます。</p>
+    <div style="margin-bottom:12px">
+      <label class="lbl">作業の名前</label>
+      <input type="text" id="njName" placeholder="例) パン販売" onkeydown="if(event.key==='Enter')saveNewJob()">
+    </div>
+    <div>
+      <label class="lbl">分類</label>
+      <select id="njGroup">
+        <option value="商品販売">商品販売</option>
+        <option value="弁当">弁当</option>
+        <option value="委託作業">委託作業</option>
+        <option value="その他">その他</option>
+      </select>
+    </div>
+    <div class="row" style="margin-top:18px">
+      <button class="btn" onclick="saveNewJob()">追加してえらぶ</button>
+      <button class="btn sub" onclick="closeModal('newJobModal')">やめる</button>
+    </div>
+  </div>
+</div>
 
 <!-- 編集モーダル -->
 <div class="modal" id="editModal">
@@ -1072,9 +1099,30 @@ function renderJobTiles(){
   const list = (eType==='out') ? activeJobs().concat([COMMON_JOB]) : activeJobs();
   document.getElementById('jobTiles').innerHTML = list.map(j=>
     `<button class="tile ${eJob===j.id?'sel':''}" onclick="pickJob('${j.id}')">${esc(j.name)}<span class="g">${esc(j.group)}</span></button>`
-  ).join('');
+  ).join('') +
+  `<button class="tile addtile" onclick="openNewJob()">＋ 新しい作業<span class="g">ここから追加できます</span></button>`;
 }
 function pickJob(id){ eJob = (eJob===id?null:id); renderJobTiles(); renderMemoChips(); }
+
+/** 入力画面から作業をその場で追加する */
+function openNewJob(){
+  document.getElementById('njName').value='';
+  document.getElementById('njGroup').value='商品販売';
+  document.getElementById('newJobModal').classList.add('open');
+  setTimeout(()=>document.getElementById('njName').focus(), 50);
+}
+function saveNewJob(){
+  const n=document.getElementById('njName').value.trim();
+  if(!n){ alert('作業の名前を入れてください'); document.getElementById('njName').focus(); return; }
+  if(DB.jobs.some(j=>j.name===n)){ alert('同じ名前の作業がすでにあります'); return; }
+  const id=genId();
+  DB.jobs.push({id, name:n, group:document.getElementById('njGroup').value, active:true});
+  saveMaster();
+  eJob = id;                 // 追加したらそのまま選択状態にする
+  closeModal('newJobModal');
+  renderAll(); renderJobTiles(); renderMemoChips();
+  toast('「'+n+'」を追加しました');
+}
 
 function renderCostTiles(){
   document.getElementById('costTiles').innerHTML = DB.costs.filter(c=>c.active).map(c=>
