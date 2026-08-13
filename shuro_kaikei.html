@@ -291,6 +291,9 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
       <div class="card">
         <div class="tablewrap"><table id="tplTable"></table></div>
+        <div class="row noprint" style="margin-top:12px">
+          <button class="btn sub" onclick="addTplExtraRow()">＋ 一覧にない項目を追加</button>
+        </div>
         <div class="row" style="margin-top:14px">
           <button class="btn big" onclick="saveTemplate()">✅ 入力した分をまとめて保存</button>
         </div>
@@ -1215,7 +1218,8 @@ function renderTemplate(){
       <td>${typePill(e.t)}</td>
       <td><input type="number" class="tplDay" value="${dayOf(e.d)}" min="1" max="31" style="width:64px;text-align:right;padding:6px"></td>
       <td><input type="number" class="tplAmt" inputmode="numeric" placeholder="${num(e.a)}" style="text-align:right;font-weight:700;padding:8px"></td>
-      <td style="font-size:12px;color:${done?'var(--green)':'var(--sub)'}">${done?'入力済み':'—'}</td>
+      <td class="noprint"><button class="btn sub tplSkipBtn" style="padding:4px 8px;font-size:12px" onclick="toggleTplSkip(this)">今月は無し</button>
+        <span style="font-size:12px;color:${done?'var(--green)':'var(--sub)'}">${done?'入力済み':''}</span></td>
     </tr>`;
   });
   h += `</tbody>`;
@@ -1223,22 +1227,89 @@ function renderTemplate(){
   table._src = srcRows; table._tgt = tgt;
 }
 
+/** 「今月は無し」トグル：その行の金額入力を無効にして薄く表示する */
+function toggleTplSkip(btn){
+  const tr = btn.closest('tr');
+  const amt = tr.querySelector('.tplAmt');
+  const skipped = tr.classList.toggle('tplSkipped');
+  amt.disabled = skipped;
+  if(skipped) amt.value='';
+  tr.style.opacity = skipped ? '0.45' : '';
+  btn.textContent = skipped ? 'もどす' : '今月は無し';
+}
+
+/** 一覧にない項目をその場で追加する行 */
+function addTplExtraRow(){
+  const tbody = document.querySelector('#tplTable tbody');
+  if(!tbody) return;
+  const tr = document.createElement('tr');
+  tr.className = 'tplExtraRow';
+  tr.innerHTML = `
+    <td colspan="2" style="text-align:left">
+      <input type="text" class="tplExMemo" placeholder="内容・メモ" style="width:100%;padding:6px;margin-bottom:4px">
+      <select class="tplExType" onchange="onTplExTypeChange(this)" style="width:100%;padding:6px;margin-bottom:4px">
+        <option value="in">💴 売上</option><option value="out">🧾 経費</option><option value="wage">👥 利用者工賃</option>
+      </select>
+      <select class="tplExJob" style="width:100%;padding:6px;margin-bottom:4px"></select>
+      <select class="tplExCost" style="width:100%;padding:6px;display:none"></select>
+    </td>
+    <td><input type="number" class="tplExDay" min="1" max="31" value="1" style="width:64px;text-align:right;padding:6px"></td>
+    <td><input type="number" class="tplExAmt" inputmode="numeric" placeholder="金額" style="text-align:right;font-weight:700;padding:8px;width:100%"></td>
+    <td class="noprint"><button class="btn sub" style="padding:4px 8px;font-size:12px" onclick="this.closest('tr').remove()">✕ 削除</button></td>`;
+  tbody.appendChild(tr);
+  onTplExTypeChange(tr.querySelector('.tplExType'));
+  tr.querySelector('.tplExMemo').focus();
+}
+function onTplExTypeChange(sel){
+  const tr = sel.closest('tr');
+  const jobSel = tr.querySelector('.tplExJob'), costSel = tr.querySelector('.tplExCost');
+  const t = sel.value;
+  if(t==='wage'){
+    jobSel.style.display='none'; jobSel.innerHTML='';
+    costSel.style.display='none'; costSel.innerHTML='';
+    return;
+  }
+  jobSel.style.display='';
+  const list = t==='out' ? activeJobs().concat([COMMON_JOB]) : activeJobs();
+  jobSel.innerHTML = list.map(j=>`<option value="${j.id}">${esc(j.name)}</option>`).join('');
+  if(t==='out'){
+    costSel.style.display='';
+    costSel.innerHTML = DB.costs.filter(c=>c.active).map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  }else{
+    costSel.style.display='none'; costSel.innerHTML='';
+  }
+}
+
 async function saveTemplate(){
   const table=document.getElementById('tplTable');
   const srcRows=table._src||[], tgt=table._tgt;
-  if(!srcRows.length){ alert('お手本の行がありません。'); return; }
-  const trs=[...table.querySelectorAll('tbody tr[data-i]')];
+  const last=new Date(+tgt.slice(0,4), +tgt.slice(5,7), 0).getDate();
   const list=[];
-  trs.forEach(tr=>{
+
+  [...table.querySelectorAll('tbody tr[data-i]')].forEach(tr=>{
+    if(tr.classList.contains('tplSkipped')) return;
     const i=+tr.dataset.i, src=srcRows[i];
     const amt=Math.round(+tr.querySelector('.tplAmt').value);
     if(!amt || isNaN(amt)) return;
     let day=Math.round(+tr.querySelector('.tplDay').value)||1;
-    const last=new Date(+tgt.slice(0,4), +tgt.slice(5,7), 0).getDate();
     if(day>last) day=last;
     list.push({ id:genId(), d: tgt+'-'+String(day).padStart(2,'0'), t:src.t, a:amt,
                 j:src.j, c:src.c||'', m:src.m||'', p:'', ts:new Date().toISOString() });
   });
+
+  [...table.querySelectorAll('tbody tr.tplExtraRow')].forEach(tr=>{
+    const amt=Math.round(+tr.querySelector('.tplExAmt').value);
+    if(!amt || isNaN(amt)) return;
+    const t=tr.querySelector('.tplExType').value;
+    const j = t==='wage' ? '' : tr.querySelector('.tplExJob').value;
+    if(t!=='wage' && !j) return; // 作業が選べていない行は安全のため飛ばす
+    const c = t==='out' ? (tr.querySelector('.tplExCost').value||'other') : '';
+    let day=Math.round(+tr.querySelector('.tplExDay').value)||1;
+    if(day>last) day=last; if(day<1) day=1;
+    list.push({ id:genId(), d: tgt+'-'+String(day).padStart(2,'0'), t, a:amt, j, c,
+                m: tr.querySelector('.tplExMemo').value.trim(), p:'', ts:new Date().toISOString() });
+  });
+
   if(!list.length){ alert('金額が1つも入っていません。'); return; }
   if(!confirm(list.length+'件を'+monthLabelFull(tgt)+'に登録します。よろしいですか？')) return;
   await putEntries(list);
