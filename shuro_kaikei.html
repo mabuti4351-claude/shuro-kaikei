@@ -247,7 +247,8 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <div class="row">
           <div class="grow" style="min-width:200px">
             <label class="lbl">金額（円）</label>
-            <input type="number" id="eAmount" inputmode="numeric" placeholder="例) 12000" style="font-size:24px;font-weight:700;text-align:right">
+            <input type="number" id="eAmount" inputmode="numeric" placeholder="例) 12000" style="font-size:24px;font-weight:700;text-align:right" oninput="onAmountInput()">
+            <div id="eAmountEcho" class="hint" style="text-align:right;margin:4px 0 0;min-height:20px"></div>
           </div>
           <div class="grow" style="max-width:200px">
             <label class="lbl">日付</label>
@@ -266,9 +267,11 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
           </div>
         </div>
         <div id="memoChips" class="row" style="margin-top:8px"></div>
-        <div class="row" style="margin-top:16px">
+        <div class="hint" id="saveHint" style="margin-top:14px;min-height:22px"></div>
+        <div class="row">
           <button class="btn big" onclick="saveSingle()">✅ この内容で保存する</button>
         </div>
+        <div id="lastSaved" class="banner info" style="display:none;margin-top:12px"></div>
         <div class="hint" id="editingNote" style="display:none"></div>
       </div>
     </div>
@@ -398,6 +401,12 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     </div>
     <div class="card noprint">
       <h3>⚠ 入金日がまだ入っていない売上</h3>
+      <p class="hint">まとめて本部へ渡したときは、渡した分にチェックを入れて、下の日付を選んでボタンを押してください。1件ずつ開かなくても入金日が入ります。</p>
+      <div class="row" style="margin-bottom:12px">
+        <label style="cursor:pointer"><input type="checkbox" id="dpAll" onchange="toggleAllPending(this)"> すべて選ぶ</label>
+        <input type="date" id="dpBulkDate" style="max-width:190px">
+        <button class="btn" onclick="applyBulkDeposit()">📌 選んだ分にまとめて入金日を入れる</button>
+      </div>
       <div class="tablewrap"><table id="dpPending"></table></div>
     </div>
   </section>
@@ -1096,6 +1105,7 @@ function setEType(t){
   renderCostTiles();
   renderPresetTiles();
   renderMemoChips();
+  updateSaveHint();
 }
 
 /** よく使う経費（業者）ボタン */
@@ -1111,7 +1121,7 @@ function applyPreset(id){
   const p = DB.presets.find(x=>x.id===id); if(!p) return;
   eJob = p.j; eCost = p.c;
   document.getElementById('eMemo').value = p.name;
-  renderJobTiles(); renderCostTiles();
+  renderJobTiles(); renderCostTiles(); updateSaveHint();
   const amt = document.getElementById('eAmount');
   amt.focus(); amt.select();
   toast(p.name + ' → 金額を入れてください');
@@ -1124,7 +1134,7 @@ function renderJobTiles(){
   ).join('') +
   `<button class="tile addtile" onclick="openNewJob()">＋ 新しい作業<span class="g">ここから追加できます</span></button>`;
 }
-function pickJob(id){ eJob = (eJob===id?null:id); renderJobTiles(); renderMemoChips(); }
+function pickJob(id){ eJob = (eJob===id?null:id); renderJobTiles(); renderMemoChips(); updateSaveHint(); }
 
 /** 入力画面から作業をその場で追加する */
 function openNewJob(){
@@ -1175,6 +1185,55 @@ function resetSingle(keepType){
   document.getElementById('eDate').value = todayISO();
   document.getElementById('editingNote').style.display='none';
   renderJobTiles(); renderCostTiles();
+  onAmountInput();
+}
+
+/** 打った金額を「12,000円（約1万円）」と読み上げ、桁の打ち間違いに気づけるようにする */
+function onAmountInput(){
+  const el = document.getElementById('eAmountEcho');
+  if(!el) return;
+  const v = Math.round(+document.getElementById('eAmount').value);
+  if(!v || isNaN(v)){ el.textContent=''; }
+  else{
+    const man = Math.abs(v)>=10000 ? `（約${Math.round(Math.abs(v)/10000).toLocaleString('ja-JP')}万円）` : '';
+    el.innerHTML = `<b style="color:var(--green-d);font-size:15px">${num(v)}円</b> <span style="color:var(--sub)">${man}</span>`;
+  }
+  updateSaveHint();
+}
+
+/** 保存前に「あと何が足りないか」を出す（押してから怒られないようにする） */
+function updateSaveHint(){
+  const el = document.getElementById('saveHint');
+  if(!el) return;
+  const missing=[];
+  if(eType!=='wage' && !eJob) missing.push('作業をえらぶ');
+  const a = Math.round(+document.getElementById('eAmount').value);
+  if(!a || isNaN(a)) missing.push('金額を入れる');
+  if(missing.length){
+    el.innerHTML = '👉 あと：' + missing.map(m=>`<b>${m}</b>`).join('　／　');
+    el.style.color = 'var(--orange)';
+  }else{
+    el.innerHTML = '✔ 入力できています。下のボタンで保存してください。';
+    el.style.color = 'var(--green-d)';
+  }
+}
+
+let _lastSaved = null;
+/** 保存した内容をその場に出して、間違えたらすぐ取り消せるようにする */
+function showLastSaved(e){
+  _lastSaved = e;
+  const el = document.getElementById('lastSaved');
+  el.style.display = '';
+  el.innerHTML = `✅ 保存しました　<b>${e.d.replace(/-/g,'/')}</b>　${esc(e.t==='wage'?'利用者工賃':jobName(e.j))}　<b>${yen(e.a)}</b>
+    <button class="btn sub" style="padding:3px 12px;font-size:12px;margin-left:10px" onclick="undoLastSave()">↩ 取り消す</button>`;
+}
+async function undoLastSave(){
+  if(!_lastSaved) return;
+  await removeEntry(_lastSaved.id);
+  _lastSaved = null;
+  document.getElementById('lastSaved').style.display = 'none';
+  toast('取り消しました');
+  renderAll();
 }
 
 async function saveSingle(){
@@ -1192,6 +1251,7 @@ async function saveSingle(){
   };
   await putEntry(e);
   toast('保存しました（' + yen(a) + '）');
+  showLastSaved(e);
   const keepDate = d;
   resetSingle(true);
   document.getElementById('eDate').value = keepDate;
@@ -1867,15 +1927,36 @@ function renderDeposit(){
     body.innerHTML=h;
   }
   // 未入金
+  const bulkDate=document.getElementById('dpBulkDate');
+  if(bulkDate && !bulkDate.value) bulkDate.value = todayISO();
+  const allChk=document.getElementById('dpAll'); if(allChk) allChk.checked=false;
+
   const pend=DB.entries.filter(e=>e.t==='in' && !e.p).sort((a,b)=>a.d.localeCompare(b.d));
-  let p=`<thead><tr><th>日付</th><th>作業</th><th style="text-align:left">メモ</th><th>金額</th><th class="noprint"></th></tr></thead><tbody>`;
-  if(!pend.length) p+=`<tr><td colspan="5" style="text-align:center;color:var(--sub);padding:16px">ありません 👍</td></tr>`;
+  let p=`<thead><tr><th class="noprint" style="width:40px"></th><th>日付</th><th>作業</th><th style="text-align:left">メモ</th><th>金額</th><th class="noprint"></th></tr></thead><tbody>`;
+  if(!pend.length) p+=`<tr><td colspan="6" style="text-align:center;color:var(--sub);padding:16px">ありません 👍</td></tr>`;
   pend.slice(0,60).forEach(e=>{
-    p+=`<tr><td>${e.d.replace(/-/g,'/')}</td><td style="text-align:right">${esc(jobName(e.j))}</td><td style="text-align:left">${esc(e.m||'')}</td><td class="num">${num(e.a)}</td>
-        <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">入金日を入れる</button></td></tr>`;
+    p+=`<tr><td class="noprint" style="text-align:center"><input type="checkbox" class="dpChk" value="${e.id}" style="width:18px;height:18px;cursor:pointer"></td>
+        <td>${e.d.replace(/-/g,'/')}</td><td style="text-align:right">${esc(jobName(e.j))}</td><td style="text-align:left">${esc(e.m||'')}</td><td class="num">${num(e.a)}</td>
+        <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">1件ずつ直す</button></td></tr>`;
   });
-  if(pend.length>60) p+=`<tr><td colspan="5" style="text-align:center;color:var(--sub)">…ほか ${pend.length-60} 件</td></tr>`;
+  if(pend.length>60) p+=`<tr><td colspan="6" style="text-align:center;color:var(--sub)">…ほか ${pend.length-60} 件</td></tr>`;
   document.getElementById('dpPending').innerHTML=p+`</tbody>`;
+}
+
+function toggleAllPending(cb){
+  document.querySelectorAll('#dpPending .dpChk').forEach(c=>c.checked=cb.checked);
+}
+/** チェックした売上に、まとめて同じ入金日を入れる */
+async function applyBulkDeposit(){
+  const d=document.getElementById('dpBulkDate').value;
+  if(!d){ alert('入金日を選んでください。'); return; }
+  const ids=[...document.querySelectorAll('#dpPending .dpChk:checked')].map(c=>c.value);
+  if(!ids.length){ alert('入金日を入れる行にチェックを入れてください。'); return; }
+  if(!confirm(`${ids.length}件に入金日「${d.replace(/-/g,'/')}」を入れます。よろしいですか？`)) return;
+  const list=ids.map(id=>Object.assign({}, DB.entries.find(x=>x.id===id), {p:d}));
+  await putEntries(list);
+  toast(`${list.length}件に入金日を入れました`);
+  renderAll();
 }
 
 /* ============ 設定 ============ */
