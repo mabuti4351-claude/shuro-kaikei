@@ -555,6 +555,10 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <button class="btn sub" onclick="exportBackup()">💾 バックアップ（JSON）</button>
       </div>
       <p class="hint">CSVの列は「日付, 摘要, 収入, 支出, 勘定科目1, 勘定科目2, 入金日」。今のExcelからそのまま貼り付けられます。</p>
+      <div class="row" style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)">
+        <button class="btn sub" style="border-color:var(--orange);color:var(--orange)" onclick="reimportSeed()">🔁 Excel分だけ消して取り込み直す</button>
+      </div>
+      <p class="hint">試験運用中の一時的なボタンです。Excelから取り込んだ分だけを消してもう一度取り込み直します（手入力したデータは残ります）。運用が固まったら削除します。</p>
     </div>
   </section>
 </main>
@@ -2051,6 +2055,20 @@ async function importSeed(){
   if(!confirm(`Excelの ${list.length} 件を取り込みます。よろしいですか？`)) return;
   await putEntries(list);
   toast(list.length+'件 取り込みました'); renderAll();
+}
+
+/** 試験運用中の一時的な機能：取り込み済みのExcel分だけ消して最新の内容で入れ直す */
+async function reimportSeed(){
+  if(typeof SEED_FY2025==='undefined' || !SEED_FY2025.length){ alert('取り込みデータがありません'); return; }
+  const seedKey = s => s.d+'|'+s.t+'|'+s.a+'|'+(s.m||'');
+  const seedKeys = new Set(SEED_FY2025.map(seedKey));
+  const toRemove = DB.entries.filter(e=>seedKeys.has(seedKey(e)));
+  if(!confirm(`これまでに取り込んだExcel分（${toRemove.length}件）をいったん消して、最新の内容で取り込み直します。\n手入力したデータは消えません。よろしいですか？`)) return;
+  for(const e of toRemove){ await removeEntry(e.id); }
+  const list = SEED_FY2025.map(s=>({id:genId(), d:s.d, t:s.t, a:s.a, j:s.j||'', c:s.c||'', m:s.m||'', p:s.p||'', ts:new Date().toISOString()}));
+  await putEntries(list);
+  toast(`Excel分を消して、${list.length}件を取り込み直しました`);
+  renderAll();
 }
 
 function parseCsv(text){
