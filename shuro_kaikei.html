@@ -553,18 +553,8 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     </div>
 
     <div class="card">
-      <h2>☁ クラウド共有（Firebase）</h2>
+      <h2>☁ クラウド共有</h2>
       <p class="hint" id="fbStatusText"></p>
-      <div class="row">
-        <button class="btn sub" onclick="openFbModal()">クラウドの設定</button>
-      </div>
-    </div>
-
-    <div class="card">
-      <h2>⚠ データの削除</h2>
-      <div class="row">
-        <button class="btn warn" onclick="clearAll()">すべてのデータを消す</button>
-      </div>
     </div>
   </section>
 </main>
@@ -597,20 +587,6 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <button class="btn sub" onclick="closeModal('editModal')">やめる</button>
       <span class="spacer" style="flex:1"></span>
       <button class="btn warn" onclick="deleteEdit()">この行を消す</button>
-    </div>
-  </div>
-</div>
-
-<!-- Firebase設定モーダル -->
-<div class="modal" id="fbModal">
-  <div class="box">
-    <h3>☁ クラウド共有の設定</h3>
-    <p class="hint">Firebaseの設定を貼ると、どのパソコン・スマホからでも同じデータが見られます。設定しないあいだは、このパソコンの中だけに保存されます。</p>
-    <div id="fbFields"></div>
-    <div class="row" style="margin-top:16px">
-      <button class="btn" onclick="saveFbConfig()">保存して接続</button>
-      <button class="btn sub" onclick="closeModal('fbModal')">やめる</button>
-      <button class="btn sub" onclick="clearFbConfig()">接続をやめる</button>
     </div>
   </div>
 </div>
@@ -795,7 +771,6 @@ async function saveMaster(){
 }
 
 /* ============ Firebase ============ */
-const FB_FIELDS = ['apiKey','authDomain','projectId','storageBucket','messagingSenderId','appId'];
 let _wsEmail = null, _unsubEnt = null, _unsubWs = null, _authMode='login';
 
 function loadFbConfig(){ try{ return JSON.parse(localStorage.getItem(LS_FB)||'null'); }catch{ return null; } }
@@ -910,36 +885,11 @@ async function resetPassword(){
 }
 function doLogout(){ if(!confirm('ログアウトしますか？')) return; window._fbAuth && window._fbAuth.signOut(); }
 
-function openFbModal(){
-  const cfg = loadFbConfig()||{};
-  document.getElementById('fbFields').innerHTML = FB_FIELDS.map(k=>
-    `<div style="margin-bottom:8px"><label class="lbl">${k}${(k==='apiKey'||k==='projectId')?' <span style="color:#c62828">*</span>':''}</label>
-     <input type="text" id="fb-${k}" value="${esc(cfg[k]||'')}"></div>`).join('');
-  document.getElementById('fbModal').classList.add('open');
-}
-async function saveFbConfig(){
-  const cfg={}; FB_FIELDS.forEach(k=>{ const v=document.getElementById('fb-'+k).value.trim(); if(v) cfg[k]=v; });
-  if(!cfg.apiKey||!cfg.projectId){ alert('apiKey と projectId は必須です'); return; }
-  saveFbConfigRaw(cfg); closeModal('fbModal');
-  toast('保存しました。読み込み直します');
-  setTimeout(()=>location.reload(), 800);
-}
-function clearFbConfig(){
-  if(!confirm('クラウド接続をやめますか？（このパソコンの中のデータは残ります）')) return;
-  localStorage.removeItem(LS_FB); location.reload();
-}
 function updateModeBanner(){
   const el = document.getElementById('modeBanner');
-  const cfg = loadFbConfig();
-  if(!cfg || !cfg.apiKey){
-    el.innerHTML = '<div class="banner warn">📁 <b>このパソコンだけに保存中</b>です。ほかの人と共有するには「設定 → クラウド共有」から接続してください。</div>';
-  }else if(cloudOn()){
-    el.innerHTML = '';
-  }else{
-    el.innerHTML = '<div class="banner info">☁ クラウド接続中…</div>';
-  }
+  el.innerHTML = cloudOn() ? '' : '<div class="banner info">☁ クラウド接続中…</div>';
   const st=document.getElementById('fbStatusText');
-  if(st) st.textContent = cloudOn() ? ('接続中：'+_wsEmail) : (cfg&&cfg.apiKey ? '設定済み（未ログイン）' : '未設定。今はこのパソコンの中だけに保存されます。');
+  if(st) st.textContent = cloudOn() ? ('接続中：'+_wsEmail) : '接続中…';
 }
 
 function closeModal(id){ document.getElementById(id).classList.remove('open'); }
@@ -2083,23 +2033,6 @@ function exportReportCsv(){
 function exportBackup(){
   downloadFile('backup_'+todayISO()+'.json', JSON.stringify(DB,null,1), 'application/json');
   toast('バックアップを書き出しました');
-}
-
-async function clearAll(){
-  if(!confirm('すべての明細を消します。もとに戻せません。よろしいですか？')) return;
-  if(!confirm('本当に消してよろしいですか？')) return;
-  const ids=DB.entries.map(e=>e.id);
-  DB.entries=[]; saveLocal();
-  if(cloudOn()){
-    try{
-      for(let i=0;i<ids.length;i+=400){
-        const b=window._fbDb.batch();
-        ids.slice(i,i+400).forEach(id=>b.delete(entCol().doc(id)));
-        await b.commit();
-      }
-    }catch(e){ console.error(e); }
-  }
-  renderAll(); toast('消しました');
 }
 
 /* ============ タブ・全体描画 ============ */
