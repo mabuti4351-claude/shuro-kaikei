@@ -1,0 +1,19 @@
+{
+  "name": "就労B型 生産活動 収支アプリ",
+  "short_name": "生産活動収支",
+  "description": "就労継続支援B型の生産活動における収支を、全体と作業ごとに管理するアプリ",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f4f6f8",
+  "theme_color": "#2e7d32",
+  "lang": "ja",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

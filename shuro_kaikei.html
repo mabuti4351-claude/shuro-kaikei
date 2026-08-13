@@ -1,0 +1,2178 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>就労B型 生産活動 収支アプリ</title>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<meta name="theme-color" content="#2e7d32">
+<style>
+:root{
+  --green:#2e7d32; --green-d:#1b5e20; --green-l:#e8f5e9;
+  --orange:#ef6c00; --orange-l:#fff3e0;
+  --blue:#1565c0; --blue-l:#e3f2fd;
+  --red:#c62828; --red-l:#ffebee;
+  --ink:#1f2937; --sub:#6b7280; --line:#d8dee6; --bg:#f4f6f8; --card:#fff;
+  --shadow:0 2px 8px rgba(0,0,0,.08);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:"Meiryo","Hiragino Kaku Gothic ProN","Yu Gothic UI",sans-serif;
+  background:var(--bg);color:var(--ink);font-size:16px;line-height:1.6;-webkit-text-size-adjust:100%}
+button{font-family:inherit;font-size:inherit;cursor:pointer}
+input,select,textarea{font-family:inherit;font-size:16px}
+
+/* ===== ヘッダ ===== */
+header{background:linear-gradient(135deg,var(--green),var(--green-d));color:#fff;padding:10px 16px;
+  display:flex;align-items:center;gap:12px;flex-wrap:wrap;position:sticky;top:0;z-index:50;box-shadow:var(--shadow)}
+header h1{font-size:18px;margin:0;font-weight:700;white-space:nowrap}
+header .spacer{flex:1}
+header .hbtn{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fff;
+  border-radius:8px;padding:6px 12px;font-size:13px}
+header .hbtn:hover{background:rgba(255,255,255,.3)}
+.badge{font-size:12px;opacity:.9;white-space:nowrap}
+
+/* ===== タブ ===== */
+nav.tabs{display:flex;gap:6px;background:#fff;padding:8px 12px;border-bottom:2px solid var(--line);
+  position:sticky;top:52px;z-index:40;overflow-x:auto}
+nav.tabs button{flex:0 0 auto;background:#f0f2f5;border:2px solid transparent;border-radius:10px;
+  padding:10px 18px;font-size:15px;font-weight:700;color:var(--sub);white-space:nowrap}
+nav.tabs button.active{background:var(--green-l);border-color:var(--green);color:var(--green-d)}
+
+main{max-width:1080px;margin:0 auto;padding:16px 14px 80px}
+.view{display:none}
+.view.active{display:block}
+
+/* ===== 部品 ===== */
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:16px;margin-bottom:14px;box-shadow:var(--shadow)}
+.card h2{margin:0 0 12px;font-size:17px;display:flex;align-items:center;gap:8px}
+.card h3{margin:16px 0 8px;font-size:15px;color:var(--sub)}
+.hint{font-size:13px;color:var(--sub);margin:4px 0 10px}
+.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.grow{flex:1;min-width:120px}
+label.lbl{display:block;font-size:13px;font-weight:700;color:var(--sub);margin-bottom:4px}
+input[type=text],input[type=date],input[type=number],input[type=password],input[type=email],select,textarea{
+  width:100%;padding:10px 12px;border:2px solid var(--line);border-radius:10px;background:#fff}
+input:focus,select:focus,textarea:focus{outline:none;border-color:var(--green)}
+.btn{background:var(--green);color:#fff;border:none;border-radius:10px;padding:11px 20px;font-weight:700}
+.btn:hover{background:var(--green-d)}
+.btn.sub{background:#fff;color:var(--ink);border:2px solid var(--line)}
+.btn.sub:hover{background:#f0f2f5}
+.btn.warn{background:var(--red)}
+.btn.big{font-size:19px;padding:18px 24px;border-radius:14px;width:100%}
+.btn:disabled{opacity:.5;cursor:not-allowed}
+.pill{display:inline-block;padding:2px 10px;border-radius:999px;font-size:12px;font-weight:700}
+.pill.in{background:var(--blue-l);color:var(--blue)}
+.pill.out{background:var(--orange-l);color:var(--orange)}
+.pill.wage{background:var(--red-l);color:var(--red)}
+table{width:100%;border-collapse:collapse;font-size:14px}
+th,td{border-bottom:1px solid var(--line);padding:8px 6px;text-align:right}
+th:first-child,td:first-child{text-align:left}
+th{background:#f7f9fb;font-size:13px;color:var(--sub);position:sticky;top:0}
+tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
+.num{font-variant-numeric:tabular-nums;white-space:nowrap}
+.minus{color:var(--red)}
+.tablewrap{overflow-x:auto}
+
+/* ===== 金額サマリ ===== */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px}
+.kpi{border-radius:14px;padding:14px 16px;border:2px solid}
+.kpi .k{font-size:13px;font-weight:700;opacity:.85}
+.kpi .v{font-size:26px;font-weight:800;font-variant-numeric:tabular-nums;line-height:1.25}
+.kpi .s{font-size:12px;opacity:.8}
+.kpi.in{background:var(--blue-l);border-color:#90caf9;color:var(--blue)}
+.kpi.out{background:var(--orange-l);border-color:#ffcc80;color:var(--orange)}
+.kpi.wage{background:var(--red-l);border-color:#ef9a9a;color:var(--red)}
+.kpi.bal{background:var(--green-l);border-color:#a5d6a7;color:var(--green-d)}
+.kpi.bal.neg{background:var(--red-l);border-color:#ef9a9a;color:var(--red)}
+
+/* ===== 作業タイル ===== */
+.tiles{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:10px}
+.tile{border:2px solid var(--line);background:#fff;border-radius:12px;padding:14px 8px;text-align:center;
+  font-weight:700;font-size:15px;line-height:1.3}
+.tile:hover{border-color:var(--green);background:var(--green-l)}
+.tile.sel{border-color:var(--green);background:var(--green);color:#fff}
+.tile .g{display:block;font-size:11px;font-weight:400;opacity:.7;margin-top:2px}
+.tile.sel .g{opacity:.9}
+
+/* ===== グラフ ===== */
+.chart{width:100%;overflow-x:auto}
+.chart svg{display:block;min-width:560px}
+
+/* ===== モーダル ===== */
+.modal{display:none;position:fixed;inset:0;background:rgba(0,0,0,.5);z-index:100;
+  align-items:center;justify-content:center;padding:16px}
+.modal.open{display:flex}
+.modal .box{background:#fff;border-radius:16px;max-width:560px;width:100%;max-height:88vh;overflow:auto;padding:20px}
+.modal .box h3{margin:0 0 12px;font-size:18px}
+
+/* ===== 認証画面 ===== */
+#authScreen{position:fixed;inset:0;background:linear-gradient(135deg,#e8f5e9,#f4f6f8);z-index:200;
+  display:none;align-items:center;justify-content:center;padding:16px}
+#authScreen.open{display:flex}
+#authScreen .box{background:#fff;border-radius:18px;padding:28px;max-width:400px;width:100%;box-shadow:0 8px 30px rgba(0,0,0,.15)}
+#authScreen h2{margin:0 0 6px;font-size:20px;color:var(--green-d)}
+.err{color:var(--red);font-size:13px;min-height:20px;margin:6px 0}
+
+/* ===== バナー ===== */
+.banner{border-radius:12px;padding:10px 14px;font-size:13px;margin-bottom:12px;border:2px solid}
+.banner.info{background:var(--blue-l);border-color:#90caf9;color:var(--blue)}
+.banner.warn{background:var(--orange-l);border-color:#ffcc80;color:var(--orange)}
+
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(120px);
+  background:var(--ink);color:#fff;padding:12px 22px;border-radius:999px;font-weight:700;z-index:300;
+  transition:transform .28s;box-shadow:0 6px 20px rgba(0,0,0,.3)}
+.toast.show{transform:translateX(-50%) translateY(0)}
+
+@media(max-width:640px){
+  header h1{font-size:15px}
+  nav.tabs{top:48px}
+  nav.tabs button{padding:9px 12px;font-size:14px}
+  .kpi .v{font-size:22px}
+}
+@media print{
+  header,nav.tabs,.noprint{display:none!important}
+  body{background:#fff;zoom:100%!important}
+  main{padding:0;max-width:none}
+  .card{box-shadow:none;border:1px solid #999;page-break-inside:avoid}
+}
+</style>
+</head>
+<body>
+
+<header>
+  <h1>💰 就労B型 生産活動 収支</h1>
+  <span class="badge" id="fyBadge"></span>
+  <span class="spacer"></span>
+  <span class="badge" id="wsBadge"></span>
+  <span class="badge" id="syncBadge"></span>
+  <button class="hbtn" id="zoomBtn" onclick="cycleZoom()" title="画面の文字や表を大きくします">🔍 文字の大きさ</button>
+  <button class="hbtn" id="installBtn" onclick="installApp()">⬇ アプリ化</button>
+  <button class="hbtn" id="logoutBtn" onclick="doLogout()" style="display:none">ログアウト</button>
+</header>
+
+<nav class="tabs">
+  <button data-tab="home" class="active" onclick="showTab('home')">🏠 ホーム</button>
+  <button data-tab="entry" onclick="showTab('entry')">✍ 入力</button>
+  <button data-tab="report" onclick="showTab('report')">📊 収支</button>
+  <button data-tab="list" onclick="showTab('list')">📋 明細</button>
+  <button data-tab="deposit" onclick="showTab('deposit')">🧾 入金票</button>
+  <button data-tab="kessan" id="tabKessan" style="display:none" onclick="showTab('kessan')">📑 決算（基準版）</button>
+  <button data-tab="settings" onclick="showTab('settings')">⚙ 設定</button>
+</nav>
+
+<main>
+  <div id="modeBanner"></div>
+
+  <!-- ============ ホーム ============ -->
+  <section id="view-home" class="view active">
+    <div class="card">
+      <h2>📅 <span id="homeMonthTitle">今月</span>の収支</h2>
+      <div class="row" style="margin-bottom:12px">
+        <select id="homeMonth" onchange="renderHome()" style="max-width:220px"></select>
+        <button class="btn sub" onclick="shiftHomeMonth(-1)">◀ 前の月</button>
+        <button class="btn sub" onclick="shiftHomeMonth(1)">次の月 ▶</button>
+      </div>
+      <div class="kpis" id="homeKpis"></div>
+    </div>
+
+    <div class="card">
+      <h2>🧩 作業ごとの収支（<span id="homeMonthTitle2"></span>）</h2>
+      <div class="tablewrap"><table id="homeJobTable"></table></div>
+    </div>
+
+    <div class="card">
+      <h2>➕ 入力する</h2>
+      <p class="hint">まずはここから。日付は自動で今日が入ります。</p>
+      <div class="row">
+        <button class="btn big" style="background:var(--blue)" onclick="startQuick('in')">💴 売上（お金が入った）</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn big" style="background:var(--orange)" onclick="startQuick('out')">🧾 経費（お金を払った）</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn big" style="background:var(--red)" onclick="startQuick('wage')">👥 利用者工賃を支払った</button>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn big sub" onclick="showTab('entry');switchEntryMode('template')">🔁 いつもの入力（毎月の定例をまとめて）</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🕒 最近の入力</h2>
+      <div class="tablewrap"><table id="homeRecent"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ 入力 ============ -->
+  <section id="view-entry" class="view">
+    <div class="card">
+      <div class="row" style="margin-bottom:4px">
+        <button class="btn sub" id="modeBtn-single" onclick="switchEntryMode('single')">1件ずつ入力</button>
+        <button class="btn sub" id="modeBtn-template" onclick="switchEntryMode('template')">いつもの入力（月まとめ）</button>
+      </div>
+    </div>
+
+    <!-- 1件ずつ -->
+    <div id="entrySingle">
+      <div class="card">
+        <h2>① どちらですか？</h2>
+        <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+          <button class="tile" data-t="in" onclick="setEType('in')">💴 売上<span class="g">お金が入った</span></button>
+          <button class="tile" data-t="out" onclick="setEType('out')">🧾 経費<span class="g">材料・食材など</span></button>
+          <button class="tile" data-t="wage" onclick="setEType('wage')">👥 利用者工賃<span class="g">工賃を払った</span></button>
+        </div>
+      </div>
+
+      <div class="card" id="presetCard" style="display:none">
+        <h2>⚡ よく使う経費（業者）</h2>
+        <p class="hint">ボタンを押すと、作業・費目・業者名がまとめて入ります。あとは金額を打つだけです。</p>
+        <div class="tiles" id="presetTiles"></div>
+      </div>
+
+      <div class="card" id="jobCard">
+        <h2>② どの作業ですか？</h2>
+        <p class="hint" id="jobHint"></p>
+        <div class="tiles" id="jobTiles"></div>
+      </div>
+
+      <div class="card" id="costCard" style="display:none">
+        <h2>③ 何に使いましたか？（費目）</h2>
+        <div class="tiles" id="costTiles"></div>
+      </div>
+
+      <div class="card">
+        <h2 id="amountStepTitle">④ 金額と日付</h2>
+        <div class="row">
+          <div class="grow" style="min-width:200px">
+            <label class="lbl">金額（円）</label>
+            <input type="number" id="eAmount" inputmode="numeric" placeholder="例) 12000" style="font-size:24px;font-weight:700;text-align:right">
+          </div>
+          <div class="grow" style="max-width:200px">
+            <label class="lbl">日付</label>
+            <input type="date" id="eDate">
+          </div>
+        </div>
+        <div class="row" style="margin-top:10px">
+          <div class="grow">
+            <label class="lbl">メモ（摘要）<span style="font-weight:400">※空欄でもOK</span></label>
+            <input type="text" id="eMemo" list="memoList" placeholder="例) 焼菓子販売（本社売上分）">
+            <datalist id="memoList"></datalist>
+          </div>
+          <div class="grow" style="max-width:200px" id="depositWrap">
+            <label class="lbl">入金日（本部へ渡した日）</label>
+            <input type="date" id="eDeposit">
+          </div>
+        </div>
+        <div id="memoChips" class="row" style="margin-top:8px"></div>
+        <div class="row" style="margin-top:16px">
+          <button class="btn big" onclick="saveSingle()">✅ この内容で保存する</button>
+        </div>
+        <div class="hint" id="editingNote" style="display:none"></div>
+      </div>
+    </div>
+
+    <!-- いつもの入力 -->
+    <div id="entryTemplate" style="display:none">
+      <div class="card">
+        <h2>🔁 いつもの入力</h2>
+        <p class="hint">前の月と同じ項目がならびます。<b>金額だけ</b>入れて、いちばん下の保存ボタンを押してください。空欄の行は登録されません。</p>
+        <div class="row">
+          <div class="grow" style="max-width:220px">
+            <label class="lbl">入力する月</label>
+            <select id="tplMonth" onchange="renderTemplate()"></select>
+          </div>
+          <div class="grow" style="max-width:220px">
+            <label class="lbl">お手本にする月</label>
+            <select id="tplSrcMonth" onchange="renderTemplate()"></select>
+          </div>
+        </div>
+      </div>
+      <div class="card">
+        <div class="tablewrap"><table id="tplTable"></table></div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn big" onclick="saveTemplate()">✅ 入力した分をまとめて保存</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 収支 ============ -->
+  <section id="view-report" class="view">
+    <div class="card">
+      <div class="row">
+        <div class="grow" style="max-width:260px">
+          <label class="lbl">年度</label>
+          <select id="repFy" onchange="renderReport()"></select>
+        </div>
+        <div class="grow" style="max-width:260px">
+          <label class="lbl">期間</label>
+          <select id="repRange" onchange="renderReport()">
+            <option value="fy">年度合計</option>
+          </select>
+        </div>
+        <button class="btn sub noprint" onclick="window.print()">🖨 印刷</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>💰 全体の収支</h2>
+      <div class="kpis" id="repKpis"></div>
+      <div id="repNote" class="hint" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card">
+      <h2>🧩 作業ごとの収支</h2>
+      <p class="hint" id="repAllocNote"></p>
+      <div class="tablewrap"><table id="repJobTable"></table></div>
+    </div>
+
+    <div class="card">
+      <h2>📈 月ごとの推移</h2>
+      <div class="chart" id="repChart"></div>
+    </div>
+
+    <div class="card">
+      <h2>📅 作業 × 月（売上）</h2>
+      <div class="tablewrap"><table id="repMatrix"></table></div>
+      <div class="row noprint" style="margin-top:12px">
+        <button class="btn sub" onclick="exportReportCsv()">📤 この表をCSVで書き出す</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 明細 ============ -->
+  <section id="view-list" class="view">
+    <div class="card">
+      <div class="row">
+        <div class="grow" style="max-width:180px">
+          <label class="lbl">年度</label><select id="lsFy" onchange="renderList()"></select>
+        </div>
+        <div class="grow" style="max-width:150px">
+          <label class="lbl">月</label><select id="lsMonth" onchange="renderList()"></select>
+        </div>
+        <div class="grow" style="max-width:180px">
+          <label class="lbl">作業</label><select id="lsJob" onchange="renderList()"></select>
+        </div>
+        <div class="grow" style="max-width:160px">
+          <label class="lbl">種類</label>
+          <select id="lsType" onchange="renderList()">
+            <option value="">すべて</option><option value="in">売上</option>
+            <option value="out">経費</option><option value="wage">利用者工賃</option>
+          </select>
+        </div>
+        <div class="grow">
+          <label class="lbl">メモで探す</label>
+          <input type="text" id="lsQ" oninput="renderList()" placeholder="例) 弁当">
+        </div>
+      </div>
+      <div class="row noprint" style="margin-top:12px">
+        <button class="btn sub" onclick="exportLedgerCsv()">📤 出納帳のかたちでCSV書き出し</button>
+        <span class="hint" id="lsCount" style="margin:0"></span>
+      </div>
+    </div>
+    <div class="card">
+      <div class="tablewrap"><table id="lsTable"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ 入金票 ============ -->
+  <section id="view-deposit" class="view">
+    <div class="card noprint">
+      <h2>🧾 入金票</h2>
+      <p class="hint">本部へお金を渡した日を選ぶと、その日ぶんの内訳が出ます。そのまま印刷できます。</p>
+      <div class="row">
+        <div class="grow" style="max-width:220px">
+          <label class="lbl">入金日</label>
+          <select id="dpDate" onchange="renderDeposit()"></select>
+        </div>
+        <button class="btn sub" onclick="window.print()">🖨 印刷</button>
+      </div>
+    </div>
+    <div class="card" id="dpCard">
+      <div id="dpBody"></div>
+    </div>
+    <div class="card noprint">
+      <h3>⚠ 入金日がまだ入っていない売上</h3>
+      <div class="tablewrap"><table id="dpPending"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ 決算（基準版） ============ -->
+  <section id="view-kessan" class="view">
+    <div class="card noprint">
+      <h2>📑 決算書類（就労支援事業会計）</h2>
+      <p class="hint">厚生労働省「就労支援の事業の会計処理の基準」に沿った帳票です。年間売上5,000万円以下で多種少額の生産活動を行うため、<b>表2・表3に代えて表4</b>を作成する簡便法を使っています。</p>
+      <div class="row">
+        <div class="grow" style="max-width:260px">
+          <label class="lbl">年度</label>
+          <select id="ksFy" onchange="renderKessan()"></select>
+        </div>
+        <button class="btn sub" onclick="window.print()">🖨 印刷</button>
+        <button class="btn sub" onclick="exportKessanCsv()">📤 CSVで書き出し</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>👥 利用者に支払うべき工賃</h2>
+      <p class="hint noprint">指定基準第201条：生産活動収入 − 生産活動に係る経費 = 利用者に支払う工賃。余剰金は原則として生じません（積立金を計上した分を除く）。</p>
+      <div class="kpis" id="ksWageKpis"></div>
+      <div id="ksWageNote" style="margin-top:12px"></div>
+    </div>
+
+    <div class="card noprint">
+      <h2>🧮 決算整理の入力</h2>
+      <p class="hint">棚卸をしていない場合は0のままで構いません（その場合、期首＝期末として扱われ、金額に影響しません）。</p>
+      <div class="row">
+        <div class="grow" style="max-width:210px"><label class="lbl">期首 材料棚卸高</label><input type="number" id="ksOpenMat" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">期末 材料棚卸高</label><input type="number" id="ksCloseMat" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">期首 仕掛品棚卸高</label><input type="number" id="ksOpenWip" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">期末 仕掛品棚卸高</label><input type="number" id="ksCloseWip" onchange="saveFyData()"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="grow" style="max-width:210px"><label class="lbl">期首 製品（商品）棚卸高</label><input type="number" id="ksOpenProd" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">期末 製品（商品）棚卸高</label><input type="number" id="ksCloseProd" onchange="saveFyData()"></div>
+      </div>
+      <h3>積立金（工賃変動積立金・設備等整備積立金）</h3>
+      <div class="row">
+        <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 繰入</label><input type="number" id="ksKoichinIn" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 取崩</label><input type="number" id="ksKoichinOut" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 繰入</label><input type="number" id="ksSetsubiIn" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 取崩</label><input type="number" id="ksSetsubiOut" onchange="saveFyData()"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>（表1）就労支援事業別事業活動明細書</h2>
+      <div id="ksPeriod1" class="hint"></div>
+      <div class="tablewrap"><table id="ksTable1"></table></div>
+    </div>
+
+    <div class="card">
+      <h2>（表4）就労支援事業明細書</h2>
+      <div id="ksPeriod4" class="hint"></div>
+      <div class="tablewrap"><table id="ksTable4"></table></div>
+    </div>
+
+    <div class="card">
+      <h2>（別紙1）就労支援事業事業活動計算書</h2>
+      <p class="hint noprint">参考様式です。ガイドラインでは「各法人が準拠する会計基準の様式で可」とされています。</p>
+      <div class="tablewrap"><table id="ksBesshi1"></table></div>
+    </div>
+  </section>
+
+  <!-- ============ 設定 ============ -->
+  <section id="view-settings" class="view">
+    <div class="card">
+      <h2>🔀 使い方のモード</h2>
+      <div class="row">
+        <select id="setMode" onchange="onModeChange()" style="max-width:380px">
+          <option value="simple">簡易版（ふだんの管理用・画面がシンプル）</option>
+          <option value="standard">基準版（厚労省の就労支援事業会計に対応）</option>
+        </select>
+      </div>
+      <p class="hint" id="modeHint"></p>
+      <div id="stdOptions" style="display:none;margin-top:10px">
+        <div class="row">
+          <label style="cursor:pointer"><input type="checkbox" id="setJobBreakdown" onchange="onJobBreakdownChange()"> 帳票に作業種別ごとの列を出す</label>
+        </div>
+        <p class="hint">「多種少額の生産活動を行う等の理由により、作業種別ごとに区別することが困難な場合は、作業種別ごとの区分を省略できる」（表1〜4共通）とされています。省略する場合はチェックを外してください。</p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🧩 作業（売上の種類）</h2>
+      <p class="hint">ここに登録した作業が、入力画面のボタンになります。使わなくなった作業は「休止」にすると、ボタンから消えます（過去のデータは残ります）。</p>
+      <div class="tablewrap"><table id="setJobTable"></table></div>
+      <div class="row" style="margin-top:12px">
+        <input type="text" id="newJobName" placeholder="新しい作業の名前" style="max-width:220px">
+        <select id="newJobGroup" style="max-width:180px">
+          <option value="商品販売">商品販売</option><option value="弁当">弁当</option>
+          <option value="委託作業">委託作業</option><option value="その他">その他</option>
+        </select>
+        <button class="btn" onclick="addJob()">＋ 追加</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🧾 費目（経費の種類）</h2>
+      <div class="tablewrap"><table id="setCostTable"></table></div>
+      <div class="row" style="margin-top:12px">
+        <input type="text" id="newCostName" placeholder="新しい費目の名前" style="max-width:220px">
+        <button class="btn" onclick="addCost()">＋ 追加</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>⚡ よく使う経費（業者）</h2>
+      <p class="hint">いつも買う業者を登録しておくと、経費の入力画面にボタンが出ます。押すだけで作業・費目・業者名が入り、金額を打つだけで保存できます。</p>
+      <div class="tablewrap"><table id="setPresetTable"></table></div>
+      <div class="row" style="margin-top:12px">
+        <input type="text" id="newPresetName" placeholder="業者名（例：○○食品）" style="max-width:200px">
+        <select id="newPresetJob" style="max-width:180px"></select>
+        <select id="newPresetCost" style="max-width:160px"></select>
+        <button class="btn" onclick="addPreset()">＋ 追加</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>⚖ 共通の経費の分け方</h2>
+      <p class="hint">食材費のように「どの作業のぶんか分けにくい」経費は、入力のときに作業を<b>「共通（あとで分ける）」</b>にしておけます。ここでその分け方を決めます。</p>
+      <div class="row">
+        <select id="setAlloc" onchange="onAllocChange()" style="max-width:340px">
+          <option value="sales">売上の比率で自動的に分ける（おすすめ）</option>
+          <option value="manual">自分で決めた比率で分ける</option>
+          <option value="none">分けない（共通費としてまとめて表示）</option>
+        </select>
+      </div>
+      <div id="allocManual" style="display:none;margin-top:12px">
+        <div class="tablewrap"><table id="allocTable"></table></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>📅 年度</h2>
+      <div class="row">
+        <div class="grow" style="max-width:220px">
+          <label class="lbl">年度の始まりの月</label>
+          <select id="setFyStart" onchange="onFyStartChange()"></select>
+        </div>
+      </div>
+      <p class="hint">今は「10月はじまり（10月〜翌9月）」の設定です。</p>
+    </div>
+
+    <div class="card">
+      <h2>📥 データの取り込み・書き出し</h2>
+      <div class="row">
+        <button class="btn sub" onclick="importSeed()">📚 これまでのExcel（2025年度 139件）を取り込む</button>
+        <button class="btn sub" onclick="document.getElementById('csvFile').click()">📥 CSVを取り込む</button>
+        <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsvFile(event)">
+        <button class="btn sub" onclick="exportLedgerCsv()">📤 全データをCSVで書き出し</button>
+        <button class="btn sub" onclick="exportBackup()">💾 バックアップ（JSON）</button>
+      </div>
+      <p class="hint">CSVの列は「日付, 摘要, 収入, 支出, 勘定科目1, 勘定科目2, 入金日」。今のExcelからそのまま貼り付けられます。</p>
+    </div>
+
+    <div class="card">
+      <h2>☁ クラウド共有（Firebase）</h2>
+      <p class="hint" id="fbStatusText"></p>
+      <div class="row">
+        <button class="btn sub" onclick="openFbModal()">クラウドの設定</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>⚠ データの削除</h2>
+      <div class="row">
+        <button class="btn warn" onclick="clearAll()">すべてのデータを消す</button>
+      </div>
+    </div>
+  </section>
+</main>
+
+<!-- 編集モーダル -->
+<div class="modal" id="editModal">
+  <div class="box">
+    <h3>明細を直す</h3>
+    <input type="hidden" id="edId">
+    <div class="row">
+      <div class="grow" style="max-width:180px"><label class="lbl">日付</label><input type="date" id="edDate"></div>
+      <div class="grow" style="max-width:180px"><label class="lbl">種類</label>
+        <select id="edType" onchange="onEdTypeChange()">
+          <option value="in">売上</option><option value="out">経費</option><option value="wage">利用者工賃</option>
+        </select></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="grow"><label class="lbl">作業</label><select id="edJob"></select></div>
+      <div class="grow" id="edCostWrap"><label class="lbl">費目</label><select id="edCost"></select></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="grow" style="max-width:200px"><label class="lbl">金額</label><input type="number" id="edAmount"></div>
+      <div class="grow" style="max-width:200px"><label class="lbl">入金日</label><input type="date" id="edDeposit"></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="grow"><label class="lbl">メモ</label><input type="text" id="edMemo"></div>
+    </div>
+    <div class="row" style="margin-top:18px">
+      <button class="btn" onclick="saveEdit()">保存</button>
+      <button class="btn sub" onclick="closeModal('editModal')">やめる</button>
+      <span class="spacer" style="flex:1"></span>
+      <button class="btn warn" onclick="deleteEdit()">この行を消す</button>
+    </div>
+  </div>
+</div>
+
+<!-- Firebase設定モーダル -->
+<div class="modal" id="fbModal">
+  <div class="box">
+    <h3>☁ クラウド共有の設定</h3>
+    <p class="hint">Firebaseの設定を貼ると、どのパソコン・スマホからでも同じデータが見られます。設定しないあいだは、このパソコンの中だけに保存されます。</p>
+    <div id="fbFields"></div>
+    <div class="row" style="margin-top:16px">
+      <button class="btn" onclick="saveFbConfig()">保存して接続</button>
+      <button class="btn sub" onclick="closeModal('fbModal')">やめる</button>
+      <button class="btn sub" onclick="clearFbConfig()">接続をやめる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 認証画面 -->
+<div id="authScreen">
+  <div class="box">
+    <h2>💰 就労B型 生産活動 収支</h2>
+    <p class="hint" id="authSub">メールアドレスでログインしてください。</p>
+    <div style="margin-bottom:10px"><label class="lbl">メールアドレス</label><input type="email" id="authEmail" autocomplete="username"></div>
+    <div><label class="lbl">パスワード（6文字以上）</label><input type="password" id="authPassword" autocomplete="current-password"></div>
+    <div class="err" id="authErr"></div>
+    <button class="btn big" id="authBtn" onclick="submitAuth()">ログイン</button>
+    <div class="row" style="margin-top:12px;justify-content:space-between">
+      <button class="btn sub" onclick="toggleAuthMode()" id="authToggle">はじめての方はこちら（新規登録）</button>
+    </div>
+    <div class="row" style="margin-top:8px">
+      <button class="btn sub" onclick="resetPassword()">パスワードを忘れた</button>
+      <button class="btn sub" onclick="openFbModal()">クラウド設定</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+/* ==================================================================
+   就労継続支援B型 生産活動 収支アプリ
+   - データ: entries（明細）／jobs（作業）／costs（費目）／settings
+   - 保存先: クラウド未設定ならlocalStorage、設定済みならFirestore
+   ================================================================== */
+
+const LS_KEY = 'shuro_kaikei_db';
+const LS_FB  = 'shuro_kaikei_fb';
+
+const DEFAULT_JOBS = [
+  {id:'bento',     name:'弁当',      group:'弁当',    active:true},
+  {id:'yakigashi', name:'焼菓子',    group:'商品販売', active:true},
+  {id:'drink',     name:'ドリンク',  group:'商品販売', active:true},
+  {id:'shukogei',  name:'手工芸',    group:'商品販売', active:true},
+  {id:'other',     name:'その他販売', group:'商品販売', active:true},
+  {id:'seiso',     name:'清掃',      group:'委託作業', active:true},
+  {id:'seal',      name:'シール貼り', group:'委託作業', active:true},
+  {id:'sensha',    name:'洗車',      group:'委託作業', active:true}
+];
+/* 表4（就労支援事業明細書）の勘定科目。grp=大区分、std=表4の科目名 */
+const STD_ITEMS = {
+  '材料費':    ['当期材料仕入高'],
+  '労務費':    ['利用者賃金','利用者工賃','就労支援事業指導員等給与','就労支援事業指導員等賞与引当金繰入',
+               '就労支援事業指導員等退職給付費用','法定福利費'],
+  '外注加工費': ['外注加工費','うち内部外注加工費'],
+  '経費':      ['福利厚生費','旅費交通費','器具什器費','消耗品費','印刷製本費','水道光熱費','燃料費','修繕費',
+               '通信運搬費','受注活動費','会議費','損害保険料','賃借料','図書・教育費','租税公課','減価償却費',
+               '国庫補助金等特別積立金取崩額','徴収不能引当金繰入額','徴収不能額','雑費'],
+  '商品仕入':  ['当期就労支援事業仕入高']
+};
+const STD_GROUPS = Object.keys(STD_ITEMS);
+
+const DEFAULT_COSTS = [
+  {id:'shokuzai', name:'食材費',  active:true, grp:'材料費',  std:'当期材料仕入高'},
+  {id:'zairyo',   name:'材料費',  active:true, grp:'材料費',  std:'当期材料仕入高'},
+  {id:'shiire',   name:'商品仕入', active:true, grp:'商品仕入', std:'当期就労支援事業仕入高'},
+  {id:'shomo',    name:'消耗品費', active:true, grp:'経費',    std:'消耗品費'},
+  {id:'nenryo',   name:'燃料費',  active:true, grp:'経費',    std:'燃料費'},
+  {id:'tesuryo',  name:'手数料',  active:true, grp:'経費',    std:'雑費'},
+  {id:'other',    name:'その他',  active:true, grp:'経費',    std:'雑費'}
+];
+const COMMON_JOB = {id:'__common', name:'共通（あとで分ける）', group:'共通', active:true};
+
+let DB = { entries: [], jobs: [], costs: [], settings: {} };
+
+function defaultSettings(){
+  return { fyStart:10, alloc:'sales', allocRatio:{},
+           mode:'simple', stdJobBreakdown:true, fyData:{} };
+}
+/** 年度ごとの決算整理データ（棚卸・積立金） */
+function fyData(fy){
+  DB.settings.fyData = DB.settings.fyData || {};
+  if(!DB.settings.fyData[fy]) DB.settings.fyData[fy] = {
+    openMat:0, closeMat:0, openWip:0, closeWip:0, openProd:0, closeProd:0,
+    koichinIn:0, koichinOut:0, setsubiIn:0, setsubiOut:0
+  };
+  return DB.settings.fyData[fy];
+}
+function isStd(){ return DB.settings.mode==='standard'; }
+
+/* ============ 共通ユーティリティ ============ */
+function genId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
+function yen(n){ return (n<0?'-':'') + '¥' + Math.abs(Math.round(n)).toLocaleString('ja-JP'); }
+function num(n){ return Math.round(n).toLocaleString('ja-JP'); }
+function todayISO(){ const d=new Date(); return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0'); }
+function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2200); }
+function esc(s){ return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function fyStart(){ return DB.settings.fyStart || 10; }
+/** その日付が属する年度（例: 2025年度 = 2025/10〜2026/9） */
+function fyOf(iso){
+  const y = +iso.slice(0,4), m = +iso.slice(5,7);
+  return m >= fyStart() ? y : y-1;
+}
+function fyLabel(fy){
+  const s = fyStart(), e = s===1?12:s-1, ey = s===1?fy:fy+1;
+  return `${fy}年度（${fy}.${s}〜${ey}.${e}）`;
+}
+/** 年度に含まれる 'YYYY-MM' の配列（12ヶ月） */
+function fyMonths(fy){
+  const out=[]; let y=fy, m=fyStart();
+  for(let i=0;i<12;i++){ out.push(y+'-'+String(m).padStart(2,'0')); m++; if(m>12){m=1;y++;} }
+  return out;
+}
+function monthLabel(ym){ return (+ym.slice(5,7)) + '月'; }
+function monthLabelFull(ym){ return (+ym.slice(0,4)) + '年' + (+ym.slice(5,7)) + '月'; }
+
+function allJobs(){ return DB.jobs.concat([COMMON_JOB]); }
+function jobById(id){ if(id===COMMON_JOB.id) return COMMON_JOB; return DB.jobs.find(j=>j.id===id) || null; }
+function jobName(id){ const j=jobById(id); return j?j.name:(id?('?'+id):'—'); }
+function costName(id){ const c=DB.costs.find(c=>c.id===id); return c?c.name:(id||'—'); }
+function activeJobs(){ return DB.jobs.filter(j=>j.active); }
+
+function allFys(){
+  const s = new Set(DB.entries.map(e=>fyOf(e.d)));
+  s.add(fyOf(todayISO()));
+  return [...s].sort((a,b)=>b-a);
+}
+
+/* ============ 保存・読み込み ============ */
+function loadLocal(){
+  try{
+    const raw = JSON.parse(localStorage.getItem(LS_KEY) || 'null');
+    if(raw){ DB = raw; }
+  }catch(e){ console.error(e); }
+  if(!DB.entries) DB.entries=[];
+  if(!DB.jobs || !DB.jobs.length) DB.jobs = JSON.parse(JSON.stringify(DEFAULT_JOBS));
+  if(!DB.costs || !DB.costs.length) DB.costs = JSON.parse(JSON.stringify(DEFAULT_COSTS));
+  if(!DB.presets) DB.presets = [];
+  // 旧データ（基準科目なし）の費目を補完
+  DB.costs.forEach(c=>{
+    if(!c.grp || !c.std){
+      const d = DEFAULT_COSTS.find(x=>x.id===c.id);
+      c.grp = c.grp || (d?d.grp:'経費');
+      c.std = c.std || (d?d.std:'雑費');
+    }
+  });
+  DB.settings = Object.assign(defaultSettings(), DB.settings||{});
+}
+function saveLocal(){
+  try{ localStorage.setItem(LS_KEY, JSON.stringify(DB)); }
+  catch(e){ alert('保存できませんでした: '+e.message); }
+}
+
+/** 明細の保存（1件） */
+async function putEntry(e){
+  const i = DB.entries.findIndex(x=>x.id===e.id);
+  if(i>=0) DB.entries[i]=e; else DB.entries.push(e);
+  saveLocal();
+  if(cloudOn()){ try{ await entCol().doc(e.id).set(e); }catch(err){ console.error(err); setSync('⚠ 同期エラー'); } }
+}
+async function removeEntry(id){
+  DB.entries = DB.entries.filter(x=>x.id!==id);
+  saveLocal();
+  if(cloudOn()){ try{ await entCol().doc(id).delete(); }catch(err){ console.error(err); } }
+}
+async function putEntries(list){
+  list.forEach(e=>{ const i=DB.entries.findIndex(x=>x.id===e.id); if(i>=0) DB.entries[i]=e; else DB.entries.push(e); });
+  saveLocal();
+  if(cloudOn()){
+    try{
+      for(let i=0;i<list.length;i+=400){
+        const b = window._fbDb.batch();
+        list.slice(i,i+400).forEach(e=>b.set(entCol().doc(e.id), e));
+        await b.commit();
+      }
+    }catch(err){ console.error(err); setSync('⚠ 同期エラー'); }
+  }
+}
+/** マスタ（作業・費目・設定）の保存 */
+async function saveMaster(){
+  saveLocal();
+  if(cloudOn()){
+    try{ await wsDoc().set({jobs:DB.jobs, costs:DB.costs, presets:DB.presets, settings:DB.settings}, {merge:true}); }
+    catch(err){ console.error(err); setSync('⚠ 同期エラー'); }
+  }
+}
+
+/* ============ Firebase ============ */
+const FB_FIELDS = ['apiKey','authDomain','projectId','storageBucket','messagingSenderId','appId'];
+let _wsEmail = null, _unsubEnt = null, _unsubWs = null, _authMode='login';
+
+function loadFbConfig(){ try{ return JSON.parse(localStorage.getItem(LS_FB)||'null'); }catch{ return null; } }
+function saveFbConfigRaw(cfg){ localStorage.setItem(LS_FB, JSON.stringify(cfg)); }
+function cloudOn(){ return !!(window._fbReady && _wsEmail); }
+function wsDoc(){ return window._fbDb.collection('shuro_kaikei').doc(_wsEmail); }
+function entCol(){ return wsDoc().collection('entries'); }
+function setSync(msg){ const el=document.getElementById('syncBadge'); if(el) el.textContent=msg||''; }
+
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+
+async function initFirebase(){
+  const cfg = loadFbConfig();
+  updateModeBanner();
+  if(!cfg || !cfg.apiKey || !cfg.projectId) return;
+  try{
+    if(!window.firebase){
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-auth-compat.js');
+      await loadScript('https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore-compat.js');
+    }
+    if(!firebase.apps.length) firebase.initializeApp(cfg);
+    window._fbDb = firebase.firestore();
+    window._fbAuth = firebase.auth();
+    window._fbReady = true;
+    window._fbAuth.onAuthStateChanged(async(user)=>{
+      if(user && user.email){
+        _wsEmail = user.email.toLowerCase();
+        document.getElementById('wsBadge').textContent = '📧 ' + _wsEmail;
+        document.getElementById('logoutBtn').style.display = 'inline-block';
+        hideAuth();
+        await startCloudSync();
+      }else{
+        _wsEmail = null;
+        if(_unsubEnt){_unsubEnt();_unsubEnt=null;}
+        if(_unsubWs){_unsubWs();_unsubWs=null;}
+        document.getElementById('wsBadge').textContent = '';
+        document.getElementById('logoutBtn').style.display = 'none';
+        showAuth();
+      }
+      updateModeBanner();
+    });
+  }catch(e){
+    console.error('Firebase init error', e);
+    toast('クラウドに接続できませんでした');
+  }
+}
+
+async function startCloudSync(){
+  setSync('🔄 読み込み中…');
+  // 初回：クラウドが空ならローカルの内容を送る
+  try{
+    const wsSnap = await wsDoc().get();
+    if(!wsSnap.exists){
+      await wsDoc().set({jobs:DB.jobs, costs:DB.costs, presets:DB.presets, settings:DB.settings, createdAt:new Date().toISOString()});
+      if(DB.entries.length){ await putEntries(DB.entries); }
+    }
+  }catch(e){ console.error(e); }
+
+  if(_unsubWs) _unsubWs();
+  _unsubWs = wsDoc().onSnapshot(snap=>{
+    const d = snap.data(); if(!d) return;
+    if(d.jobs && d.jobs.length) DB.jobs = d.jobs;
+    if(d.costs && d.costs.length) DB.costs = d.costs;
+    if(d.presets) DB.presets = d.presets;
+    if(d.settings) DB.settings = Object.assign(defaultSettings(), d.settings);
+    saveLocal(); renderAll();
+  }, e=>{ console.error(e); setSync('⚠ 同期エラー'); });
+
+  if(_unsubEnt) _unsubEnt();
+  _unsubEnt = entCol().onSnapshot(snap=>{
+    DB.entries = snap.docs.map(d=>d.data());
+    saveLocal(); setSync('🔄 同期中'); renderAll();
+  }, e=>{ console.error(e); setSync('⚠ 同期エラー'); });
+}
+
+function showAuth(){ document.getElementById('authScreen').classList.add('open'); }
+function hideAuth(){ document.getElementById('authScreen').classList.remove('open'); }
+function toggleAuthMode(){
+  _authMode = _authMode==='login' ? 'signup' : 'login';
+  document.getElementById('authBtn').textContent = _authMode==='signup' ? '新規登録' : 'ログイン';
+  document.getElementById('authToggle').textContent = _authMode==='signup' ? '登録済みの方はこちら（ログイン）' : 'はじめての方はこちら（新規登録）';
+  document.getElementById('authSub').textContent = _authMode==='signup' ? '事業所で使うメールアドレスを登録します。' : 'メールアドレスでログインしてください。';
+  document.getElementById('authErr').textContent='';
+}
+async function submitAuth(){
+  const email=(document.getElementById('authEmail').value||'').trim().toLowerCase();
+  const pw=document.getElementById('authPassword').value||'';
+  const err=document.getElementById('authErr');
+  if(!email.includes('@')){ err.textContent='メールアドレスを正しく入力してください。'; return; }
+  if(pw.length<6){ err.textContent='パスワードは6文字以上です。'; return; }
+  if(!window._fbAuth){ err.textContent='準備中です。少し待ってからもう一度お試しください。'; return; }
+  const btn=document.getElementById('authBtn'); btn.disabled=true;
+  try{
+    if(_authMode==='signup') await window._fbAuth.createUserWithEmailAndPassword(email,pw);
+    else await window._fbAuth.signInWithEmailAndPassword(email,pw);
+  }catch(e){
+    const m={'auth/invalid-credential':'メールアドレスかパスワードが違います。',
+             'auth/wrong-password':'パスワードが違います。',
+             'auth/user-not-found':'このメールアドレスは登録されていません。',
+             'auth/email-already-in-use':'このメールアドレスは登録済みです。ログインしてください。',
+             'auth/weak-password':'パスワードは6文字以上にしてください。',
+             'auth/network-request-failed':'ネットワークにつながりません。'};
+    err.textContent = m[e.code] || ('エラー: '+(e.code||e.message));
+  }finally{ btn.disabled=false; }
+}
+async function resetPassword(){
+  const email=(document.getElementById('authEmail').value||'').trim().toLowerCase();
+  if(!email.includes('@')){ document.getElementById('authErr').textContent='先にメールアドレスを入力してください。'; return; }
+  try{ await window._fbAuth.sendPasswordResetEmail(email); toast('再設定メールを送りました'); }
+  catch(e){ document.getElementById('authErr').textContent='送信できませんでした: '+(e.code||e.message); }
+}
+function doLogout(){ if(!confirm('ログアウトしますか？')) return; window._fbAuth && window._fbAuth.signOut(); }
+
+function openFbModal(){
+  const cfg = loadFbConfig()||{};
+  document.getElementById('fbFields').innerHTML = FB_FIELDS.map(k=>
+    `<div style="margin-bottom:8px"><label class="lbl">${k}${(k==='apiKey'||k==='projectId')?' <span style="color:#c62828">*</span>':''}</label>
+     <input type="text" id="fb-${k}" value="${esc(cfg[k]||'')}"></div>`).join('');
+  document.getElementById('fbModal').classList.add('open');
+}
+async function saveFbConfig(){
+  const cfg={}; FB_FIELDS.forEach(k=>{ const v=document.getElementById('fb-'+k).value.trim(); if(v) cfg[k]=v; });
+  if(!cfg.apiKey||!cfg.projectId){ alert('apiKey と projectId は必須です'); return; }
+  saveFbConfigRaw(cfg); closeModal('fbModal');
+  toast('保存しました。読み込み直します');
+  setTimeout(()=>location.reload(), 800);
+}
+function clearFbConfig(){
+  if(!confirm('クラウド接続をやめますか？（このパソコンの中のデータは残ります）')) return;
+  localStorage.removeItem(LS_FB); location.reload();
+}
+function updateModeBanner(){
+  const el = document.getElementById('modeBanner');
+  const cfg = loadFbConfig();
+  if(!cfg || !cfg.apiKey){
+    el.innerHTML = '<div class="banner warn">📁 <b>このパソコンだけに保存中</b>です。ほかの人と共有するには「設定 → クラウド共有」から接続してください。</div>';
+  }else if(cloudOn()){
+    el.innerHTML = '';
+  }else{
+    el.innerHTML = '<div class="banner info">☁ クラウド接続中…</div>';
+  }
+  const st=document.getElementById('fbStatusText');
+  if(st) st.textContent = cloudOn() ? ('接続中：'+_wsEmail) : (cfg&&cfg.apiKey ? '設定済み（未ログイン）' : '未設定。今はこのパソコンの中だけに保存されます。');
+}
+
+function closeModal(id){ document.getElementById(id).classList.remove('open'); }
+
+/* ============ 集計 ============ */
+/**
+ * 期間内の集計を返す
+ * @param {string[]} months 'YYYY-MM' の配列
+ */
+function calc(months){
+  const set = new Set(months);
+  const rows = DB.entries.filter(e=>set.has(e.d.slice(0,7)));
+  const sales={}, direct={}, salesMonth={}, costMonth={};
+  let income=0, cost=0, wage=0, common=0;
+  DB.jobs.forEach(j=>{ sales[j.id]=0; direct[j.id]=0; });
+  months.forEach(m=>{ salesMonth[m]=0; costMonth[m]=0; });
+
+  rows.forEach(e=>{
+    const m = e.d.slice(0,7);
+    if(e.t==='in'){
+      income += e.a;
+      if(sales[e.j]!==undefined) sales[e.j]+=e.a; else { sales[e.j]=(sales[e.j]||0)+e.a; }
+      salesMonth[m]=(salesMonth[m]||0)+e.a;
+    }else if(e.t==='out'){
+      cost += e.a; costMonth[m]=(costMonth[m]||0)+e.a;
+      if(e.j===COMMON_JOB.id || !e.j) common += e.a;
+      else direct[e.j]=(direct[e.j]||0)+e.a;
+    }else if(e.t==='wage'){
+      wage += e.a; costMonth[m]=(costMonth[m]||0)+e.a;
+    }
+  });
+
+  // 共通費の按分
+  const alloc = DB.settings.alloc || 'sales';
+  const allocated = {};
+  DB.jobs.forEach(j=>allocated[j.id]=0);
+  if(common>0 && alloc!=='none'){
+    if(alloc==='sales' && income>0){
+      DB.jobs.forEach(j=>{ allocated[j.id] = common * (sales[j.id]||0) / income; });
+    }else if(alloc==='manual'){
+      const r = DB.settings.allocRatio||{};
+      let tot=0; DB.jobs.forEach(j=>tot += (+r[j.id]||0));
+      if(tot>0) DB.jobs.forEach(j=>{ allocated[j.id] = common * (+r[j.id]||0)/tot; });
+    }
+  }
+  const allocatedSum = DB.jobs.reduce((s,j)=>s+allocated[j.id],0);
+  const unallocated = common - allocatedSum;
+
+  const jobRows = DB.jobs.map(j=>{
+    const s=sales[j.id]||0, d=direct[j.id]||0, a=allocated[j.id]||0;
+    return {id:j.id, name:j.name, group:j.group, sales:s, direct:d, alloc:a, gross:s-d-a};
+  }).filter(r=>r.sales||r.direct||r.alloc);
+
+  return {rows, income, cost, wage, common, allocated, allocatedSum, unallocated,
+          sales, direct, salesMonth, costMonth, jobRows, balance: income-cost-wage};
+}
+
+/* ============ 描画：ホーム ============ */
+let homeYm = todayISO().slice(0,7);
+
+function shiftHomeMonth(d){
+  let y=+homeYm.slice(0,4), m=+homeYm.slice(5,7)+d;
+  while(m<1){m+=12;y--;} while(m>12){m-=12;y++;}
+  homeYm = y+'-'+String(m).padStart(2,'0');
+  const sel=document.getElementById('homeMonth');
+  if(![...sel.options].some(o=>o.value===homeYm)){ fillMonthSelectWith(sel, homeYm); }
+  sel.value = homeYm;
+  renderHome();
+}
+/** 明細のある月＋今月＋指定月 を新しい順にならべる */
+function fillMonthSelectWith(sel, extra){
+  const months = DB.entries.map(e=>e.d.slice(0,7));
+  months.push(todayISO().slice(0,7));
+  if(extra) months.push(extra);
+  const uniq=[...new Set(months.filter(Boolean))].sort().reverse();
+  sel.innerHTML = uniq.map(m=>`<option value="${m}">${monthLabelFull(m)}</option>`).join('');
+}
+
+function renderHome(){
+  const sel=document.getElementById('homeMonth');
+  if(sel.value) homeYm = sel.value; else { fillMonthSelectWith(sel, homeYm); sel.value=homeYm; }
+  document.getElementById('homeMonthTitle').textContent = monthLabelFull(homeYm);
+  document.getElementById('homeMonthTitle2').textContent = monthLabelFull(homeYm);
+
+  const c = calc([homeYm]);
+  document.getElementById('homeKpis').innerHTML = kpiHtml(c);
+
+  // 作業別
+  let h = `<thead><tr><th>作業</th><th>売上</th><th>経費</th><th>差引</th></tr></thead><tbody>`;
+  if(!c.jobRows.length){
+    h += `<tr><td colspan="4" style="text-align:center;color:var(--sub);padding:24px">この月の入力はまだありません</td></tr>`;
+  }else{
+    c.jobRows.sort((a,b)=>b.sales-a.sales).forEach(r=>{
+      h += `<tr><td>${esc(r.name)}<span style="color:var(--sub);font-size:12px"> ${esc(r.group)}</span></td>
+        <td class="num">${num(r.sales)}</td>
+        <td class="num">${r.direct+r.alloc?num(r.direct+r.alloc):'—'}</td>
+        <td class="num ${r.gross<0?'minus':''}"><b>${num(r.gross)}</b></td></tr>`;
+    });
+    const ts=c.jobRows.reduce((s,r)=>s+r.sales,0), td=c.jobRows.reduce((s,r)=>s+r.direct+r.alloc,0);
+    h += `<tr class="total"><td>合計</td><td class="num">${num(ts)}</td><td class="num">${num(td)}</td><td class="num ${ts-td<0?'minus':''}">${num(ts-td)}</td></tr>`;
+  }
+  h += `</tbody>`;
+  document.getElementById('homeJobTable').innerHTML = h;
+
+  // 最近の入力
+  const recent = [...DB.entries].sort((a,b)=> (b.ts||'').localeCompare(a.ts||'') || b.d.localeCompare(a.d)).slice(0,8);
+  let r = `<thead><tr><th>日付</th><th style="text-align:left">内容</th><th>金額</th></tr></thead><tbody>`;
+  if(!recent.length) r += `<tr><td colspan="3" style="text-align:center;color:var(--sub);padding:20px">まだ入力がありません</td></tr>`;
+  recent.forEach(e=>{
+    r += `<tr onclick="openEdit('${e.id}')" style="cursor:pointer">
+      <td>${e.d.slice(5).replace('-','/')}</td>
+      <td style="text-align:left">${typePill(e.t)} ${esc(e.t==='wage'?'利用者工賃':jobName(e.j))} <span style="color:var(--sub);font-size:12px">${esc(e.m||'')}</span></td>
+      <td class="num">${num(e.a)}</td></tr>`;
+  });
+  document.getElementById('homeRecent').innerHTML = r + `</tbody>`;
+}
+
+function typePill(t){
+  if(t==='in') return '<span class="pill in">売</span>';
+  if(t==='out') return '<span class="pill out">経</span>';
+  return '<span class="pill wage">工</span>';
+}
+
+function kpiHtml(c){
+  return `
+  <div class="kpi in"><div class="k">売上（収入）</div><div class="v">${yen(c.income)}</div></div>
+  <div class="kpi out"><div class="k">経費（材料など）</div><div class="v">${yen(c.cost)}</div>
+    ${c.common?`<div class="s">うち共通 ${yen(c.common)}</div>`:''}</div>
+  <div class="kpi wage"><div class="k">利用者工賃</div><div class="v">${yen(c.wage)}</div></div>
+  <div class="kpi bal ${c.balance<0?'neg':''}"><div class="k">差引（収支）</div><div class="v">${yen(c.balance)}</div>
+    <div class="s">売上 − 経費 − 工賃</div></div>`;
+}
+
+/* ============ 入力（1件ずつ） ============ */
+let eType='in', eJob=null, eCost=null, editingId=null;
+
+function startQuick(t){ showTab('entry'); switchEntryMode('single'); setEType(t); resetSingle(false); }
+
+function switchEntryMode(m){
+  document.getElementById('entrySingle').style.display = m==='single'?'':'none';
+  document.getElementById('entryTemplate').style.display = m==='template'?'':'none';
+  document.getElementById('modeBtn-single').style.background = m==='single'?'var(--green-l)':'';
+  document.getElementById('modeBtn-template').style.background = m==='template'?'var(--green-l)':'';
+  if(m==='template') renderTemplateSelectors();
+}
+
+function setEType(t){
+  eType=t;
+  document.querySelectorAll('#entrySingle .tile[data-t]').forEach(b=>b.classList.toggle('sel', b.dataset.t===t));
+  document.getElementById('jobCard').style.display = (t==='wage')?'none':'';
+  document.getElementById('costCard').style.display = (t==='out')?'':'none';
+  document.getElementById('presetCard').style.display = (t==='out' && DB.presets.length)?'':'none';
+  document.getElementById('depositWrap').style.display = (t==='in')?'':'none';
+  document.getElementById('amountStepTitle').textContent = (t==='wage')?'② 金額と日付':(t==='out')?'④ 金額と日付':'③ 金額と日付';
+  document.getElementById('jobHint').textContent = (t==='out')
+    ? 'どの作業の経費か分からないときは「共通（あとで分ける）」を選んでください。あとから直せます。'
+    : '';
+  eJob = null;
+  renderJobTiles();
+  renderCostTiles();
+  renderPresetTiles();
+  renderMemoChips();
+}
+
+/** よく使う経費（業者）ボタン */
+function renderPresetTiles(){
+  const el = document.getElementById('presetTiles');
+  if(!el) return;
+  el.innerHTML = DB.presets.map(p=>
+    `<button class="tile" onclick="applyPreset('${p.id}')">${esc(p.name)}<span class="g">${esc(jobName(p.j))} / ${esc(costName(p.c))}</span></button>`
+  ).join('');
+}
+/** ボタン1つで 作業・費目・業者名 をまとめて入れる */
+function applyPreset(id){
+  const p = DB.presets.find(x=>x.id===id); if(!p) return;
+  eJob = p.j; eCost = p.c;
+  document.getElementById('eMemo').value = p.name;
+  renderJobTiles(); renderCostTiles();
+  const amt = document.getElementById('eAmount');
+  amt.focus(); amt.select();
+  toast(p.name + ' → 金額を入れてください');
+}
+
+function renderJobTiles(){
+  const list = (eType==='out') ? activeJobs().concat([COMMON_JOB]) : activeJobs();
+  document.getElementById('jobTiles').innerHTML = list.map(j=>
+    `<button class="tile ${eJob===j.id?'sel':''}" onclick="pickJob('${j.id}')">${esc(j.name)}<span class="g">${esc(j.group)}</span></button>`
+  ).join('');
+}
+function pickJob(id){ eJob = (eJob===id?null:id); renderJobTiles(); renderMemoChips(); }
+
+function renderCostTiles(){
+  document.getElementById('costTiles').innerHTML = DB.costs.filter(c=>c.active).map(c=>
+    `<button class="tile ${eCost===c.id?'sel':''}" onclick="pickCost('${c.id}')">${esc(c.name)}</button>`
+  ).join('');
+}
+function pickCost(id){ eCost = (eCost===id?null:id); renderCostTiles(); }
+
+/** よく使うメモをボタンに */
+function renderMemoChips(){
+  const pool = DB.entries.filter(e=>e.t===eType && (!eJob || e.j===eJob) && e.m);
+  const cnt={}; pool.forEach(e=>cnt[e.m]=(cnt[e.m]||0)+1);
+  const top = Object.entries(cnt).sort((a,b)=>b[1]-a[1]).slice(0,6);
+  document.getElementById('memoChips').innerHTML = top.length
+    ? '<span class="hint" style="margin:0">よく使うメモ：</span>' + top.map(([m])=>
+        `<button class="btn sub" style="padding:5px 12px;font-size:13px" onclick="document.getElementById('eMemo').value=${JSON.stringify(m).replace(/"/g,'&quot;')}">${esc(m)}</button>`).join('')
+    : '';
+  document.getElementById('memoList').innerHTML = [...new Set(DB.entries.map(e=>e.m).filter(Boolean))]
+    .map(m=>`<option value="${esc(m)}">`).join('');
+}
+
+function resetSingle(keepType){
+  if(!keepType){ /* eType はそのまま */ }
+  eJob=null; eCost=null; editingId=null;
+  document.getElementById('eAmount').value='';
+  document.getElementById('eMemo').value='';
+  document.getElementById('eDeposit').value='';
+  document.getElementById('eDate').value = todayISO();
+  document.getElementById('editingNote').style.display='none';
+  renderJobTiles(); renderCostTiles();
+}
+
+async function saveSingle(){
+  const a = Math.round(+document.getElementById('eAmount').value);
+  const d = document.getElementById('eDate').value || todayISO();
+  if(!a || isNaN(a)){ alert('金額を入れてください。'); document.getElementById('eAmount').focus(); return; }
+  if(eType!=='wage' && !eJob){ alert('どの作業か選んでください。'); return; }
+  const e = {
+    id: genId(), d, t:eType, a,
+    j: eType==='wage' ? '' : eJob,
+    c: eType==='out' ? (eCost||'other') : '',
+    m: document.getElementById('eMemo').value.trim(),
+    p: eType==='in' ? (document.getElementById('eDeposit').value||'') : '',
+    ts: new Date().toISOString()
+  };
+  await putEntry(e);
+  toast('保存しました（' + yen(a) + '）');
+  const keepDate = d;
+  resetSingle(true);
+  document.getElementById('eDate').value = keepDate;
+  renderAll();
+}
+
+/* ============ 入力（いつもの・月まとめ） ============ */
+function renderTemplateSelectors(){
+  const tm=document.getElementById('tplMonth'), sm=document.getElementById('tplSrcMonth');
+  const cur = todayISO().slice(0,7);
+  const months=[]; const fys=allFys();
+  fys.forEach(fy=>fyMonths(fy).forEach(m=>months.push(m)));
+  months.push(cur);
+  const uniq=[...new Set(months)].sort().reverse();
+  const keepT=tm.value, keepS=sm.value;
+  tm.innerHTML = uniq.map(m=>`<option value="${m}">${monthLabelFull(m)}</option>`).join('');
+  tm.value = keepT || cur;
+  const src = uniq.filter(m=>m<tm.value);
+  sm.innerHTML = src.map(m=>`<option value="${m}">${monthLabelFull(m)}</option>`).join('');
+  sm.value = keepS && src.includes(keepS) ? keepS : (src[0]||'');
+  renderTemplate();
+}
+
+function renderTemplate(){
+  const tgt=document.getElementById('tplMonth').value;
+  const src=document.getElementById('tplSrcMonth').value;
+  const table=document.getElementById('tplTable');
+  if(!src){ table.innerHTML='<tbody><tr><td style="text-align:center;color:var(--sub);padding:24px">お手本にできる月がまだありません。まずは「1件ずつ入力」で登録してください。</td></tr></tbody>'; return; }
+
+  const srcRows = DB.entries.filter(e=>e.d.slice(0,7)===src)
+    .sort((a,b)=>a.d.localeCompare(b.d));
+  const already = DB.entries.filter(e=>e.d.slice(0,7)===tgt);
+  const dayOf = iso=>+iso.slice(8,10);
+
+  let h = `<thead><tr><th style="width:34%">内容</th><th style="width:16%">種類</th><th style="width:14%">日</th><th style="width:24%">金額</th><th style="width:12%">状況</th></tr></thead><tbody>`;
+  if(!srcRows.length){
+    h += `<tr><td colspan="5" style="text-align:center;color:var(--sub);padding:24px">${monthLabelFull(src)}に入力がありません</td></tr>`;
+  }
+  srcRows.forEach((e,i)=>{
+    const done = already.find(x=>x.m===e.m && x.t===e.t && x.j===e.j);
+    h += `<tr data-i="${i}">
+      <td style="text-align:left">${esc(e.m||jobName(e.j))}<br><span style="color:var(--sub);font-size:12px">${esc(e.t==='wage'?'利用者工賃':jobName(e.j))}${e.t==='out'?' / '+esc(costName(e.c)):''}</span></td>
+      <td>${typePill(e.t)}</td>
+      <td><input type="number" class="tplDay" value="${dayOf(e.d)}" min="1" max="31" style="width:64px;text-align:right;padding:6px"></td>
+      <td><input type="number" class="tplAmt" inputmode="numeric" placeholder="${num(e.a)}" style="text-align:right;font-weight:700;padding:8px"></td>
+      <td style="font-size:12px;color:${done?'var(--green)':'var(--sub)'}">${done?'入力済み':'—'}</td>
+    </tr>`;
+  });
+  h += `</tbody>`;
+  table.innerHTML = h;
+  table._src = srcRows; table._tgt = tgt;
+}
+
+async function saveTemplate(){
+  const table=document.getElementById('tplTable');
+  const srcRows=table._src||[], tgt=table._tgt;
+  if(!srcRows.length){ alert('お手本の行がありません。'); return; }
+  const trs=[...table.querySelectorAll('tbody tr[data-i]')];
+  const list=[];
+  trs.forEach(tr=>{
+    const i=+tr.dataset.i, src=srcRows[i];
+    const amt=Math.round(+tr.querySelector('.tplAmt').value);
+    if(!amt || isNaN(amt)) return;
+    let day=Math.round(+tr.querySelector('.tplDay').value)||1;
+    const last=new Date(+tgt.slice(0,4), +tgt.slice(5,7), 0).getDate();
+    if(day>last) day=last;
+    list.push({ id:genId(), d: tgt+'-'+String(day).padStart(2,'0'), t:src.t, a:amt,
+                j:src.j, c:src.c||'', m:src.m||'', p:'', ts:new Date().toISOString() });
+  });
+  if(!list.length){ alert('金額が1つも入っていません。'); return; }
+  if(!confirm(list.length+'件を'+monthLabelFull(tgt)+'に登録します。よろしいですか？')) return;
+  await putEntries(list);
+  toast(list.length+'件 保存しました');
+  renderAll(); renderTemplate();
+}
+
+/* ============ 収支レポート ============ */
+function renderReportSelectors(){
+  const sel=document.getElementById('repFy');
+  const keep=sel.value;
+  sel.innerHTML = allFys().map(fy=>`<option value="${fy}">${fyLabel(fy)}</option>`).join('');
+  if(keep) sel.value=keep;
+  const rr=document.getElementById('repRange'), keepR=rr.value;
+  const fy=+sel.value;
+  rr.innerHTML = '<option value="fy">年度合計</option>' + fyMonths(fy).map(m=>`<option value="${m}">${monthLabelFull(m)}</option>`).join('');
+  if(keepR) rr.value=keepR;
+  if(!rr.value) rr.value='fy';
+}
+
+function renderReport(){
+  renderReportSelectors();
+  const fy=+document.getElementById('repFy').value;
+  const range=document.getElementById('repRange').value;
+  const months = range==='fy' ? fyMonths(fy) : [range];
+  const c = calc(months);
+
+  document.getElementById('repKpis').innerHTML = kpiHtml(c);
+  document.getElementById('repNote').innerHTML =
+    `対象：${range==='fy'?fyLabel(fy):monthLabelFull(range)} ／ 明細 ${c.rows.length} 件`
+    + (c.unallocated ? `<br><span style="color:var(--orange)">※ 共通の経費 ${yen(c.unallocated)} は作業に分けていません（設定で分け方を変えられます）</span>`:'');
+
+  const alloc=DB.settings.alloc;
+  document.getElementById('repAllocNote').textContent =
+    alloc==='sales' ? '共通の経費は「売上の比率」で自動的に分けています。'
+    : alloc==='manual' ? '共通の経費は「設定した比率」で分けています。'
+    : '共通の経費は作業に分けず、下の「共通」行にまとめています。';
+
+  // 作業別テーブル
+  let h=`<thead><tr><th>作業</th><th>売上</th><th>直接経費</th><th>共通経費按分</th><th>差引（粗利）</th><th>粗利率</th></tr></thead><tbody>`;
+  if(!c.jobRows.length){
+    h+=`<tr><td colspan="6" style="text-align:center;color:var(--sub);padding:24px">データがありません</td></tr>`;
+  }
+  c.jobRows.sort((a,b)=>b.sales-a.sales).forEach(r=>{
+    const rate = r.sales? Math.round(r.gross/r.sales*100) : null;
+    h+=`<tr><td>${esc(r.name)}<span style="color:var(--sub);font-size:12px"> ${esc(r.group)}</span></td>
+      <td class="num">${num(r.sales)}</td>
+      <td class="num">${r.direct?num(r.direct):'—'}</td>
+      <td class="num">${r.alloc?num(r.alloc):'—'}</td>
+      <td class="num ${r.gross<0?'minus':''}"><b>${num(r.gross)}</b></td>
+      <td class="num">${rate===null?'—':rate+'%'}</td></tr>`;
+  });
+  if(c.unallocated){
+    h+=`<tr><td>共通（分けていない分）</td><td class="num">—</td><td class="num">${num(c.unallocated)}</td><td class="num">—</td><td class="num minus">${num(-c.unallocated)}</td><td class="num">—</td></tr>`;
+  }
+  const ts=c.jobRows.reduce((s,r)=>s+r.sales,0);
+  const td_=c.jobRows.reduce((s,r)=>s+r.direct,0)+c.unallocated;
+  const ta=c.jobRows.reduce((s,r)=>s+r.alloc,0);
+  const tg=ts-td_-ta;
+  h+=`<tr class="total"><td>作業 計</td><td class="num">${num(ts)}</td><td class="num">${num(td_)}</td><td class="num">${num(ta)}</td><td class="num ${tg<0?'minus':''}">${num(tg)}</td><td class="num">${ts?Math.round(tg/ts*100)+'%':'—'}</td></tr>`;
+  h+=`<tr class="total"><td>− 利用者工賃（全体）</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num minus">${num(-c.wage)}</td><td class="num">—</td></tr>`;
+  h+=`<tr class="total"><td><b>最終の収支</b></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num ${c.balance<0?'minus':''}"><b>${num(c.balance)}</b></td><td class="num">—</td></tr>`;
+  document.getElementById('repJobTable').innerHTML = h+`</tbody>`;
+
+  renderChart(fy);
+  renderMatrix(fy);
+}
+
+function renderChart(fy){
+  const months=fyMonths(fy);
+  const c=calc(months);
+  const W=760,H=280,padL=64,padB=34,padT=16,padR=10;
+  const max=Math.max(1,...months.map(m=>Math.max(c.salesMonth[m]||0, c.costMonth[m]||0)));
+  const step=(W-padL-padR)/months.length;
+  const bw=Math.min(22,(step-10)/2);
+  const y=v=>H-padB-(v/max)*(H-padB-padT);
+  let g='';
+  // 目盛り
+  for(let i=0;i<=4;i++){
+    const v=max*i/4, yy=y(v);
+    g+=`<line x1="${padL}" y1="${yy}" x2="${W-padR}" y2="${yy}" stroke="#e5e9ee"/>`;
+    g+=`<text x="${padL-6}" y="${yy+4}" text-anchor="end" font-size="10" fill="#6b7280">${Math.round(v/10000)}万</text>`;
+  }
+  months.forEach((m,i)=>{
+    const x=padL+step*i+step/2;
+    const s=c.salesMonth[m]||0, o=c.costMonth[m]||0;
+    g+=`<rect x="${x-bw-2}" y="${y(s)}" width="${bw}" height="${H-padB-y(s)}" fill="#1565c0" rx="2"><title>${monthLabelFull(m)} 売上 ${yen(s)}</title></rect>`;
+    g+=`<rect x="${x+2}" y="${y(o)}" width="${bw}" height="${H-padB-y(o)}" fill="#ef6c00" rx="2"><title>${monthLabelFull(m)} 支出 ${yen(o)}</title></rect>`;
+    g+=`<text x="${x}" y="${H-padB+16}" text-anchor="middle" font-size="11" fill="#6b7280">${monthLabel(m)}</text>`;
+  });
+  g+=`<line x1="${padL}" y1="${H-padB}" x2="${W-padR}" y2="${H-padB}" stroke="#9aa4b0"/>`;
+  document.getElementById('repChart').innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="${H}">${g}</svg>
+     <div class="row" style="gap:18px;font-size:13px;margin-top:6px">
+       <span><span style="display:inline-block;width:12px;height:12px;background:#1565c0;border-radius:2px"></span> 売上</span>
+       <span><span style="display:inline-block;width:12px;height:12px;background:#ef6c00;border-radius:2px"></span> 支出（経費＋工賃）</span>
+     </div>`;
+}
+
+function renderMatrix(fy){
+  const months=fyMonths(fy);
+  const jobs=DB.jobs.slice();
+  const cell={};
+  jobs.forEach(j=>{cell[j.id]={};months.forEach(m=>cell[j.id][m]=0);});
+  const colT={}; months.forEach(m=>colT[m]=0);
+  DB.entries.forEach(e=>{
+    if(e.t!=='in') return;
+    const m=e.d.slice(0,7); if(!months.includes(m)) return;
+    if(!cell[e.j]) return;
+    cell[e.j][m]+=e.a; colT[m]+=e.a;
+  });
+  const used = jobs.filter(j=>months.some(m=>cell[j.id][m]));
+  let h=`<thead><tr><th>作業</th>${months.map(m=>`<th>${monthLabel(m)}</th>`).join('')}<th>合計</th></tr></thead><tbody>`;
+  if(!used.length) h+=`<tr><td colspan="${months.length+2}" style="text-align:center;color:var(--sub);padding:24px">データがありません</td></tr>`;
+  used.forEach(j=>{
+    const tot=months.reduce((s,m)=>s+cell[j.id][m],0);
+    h+=`<tr><td>${esc(j.name)}</td>${months.map(m=>`<td class="num">${cell[j.id][m]?num(cell[j.id][m]):''}</td>`).join('')}<td class="num"><b>${num(tot)}</b></td></tr>`;
+  });
+  const grand=months.reduce((s,m)=>s+colT[m],0);
+  h+=`<tr class="total"><td>合計</td>${months.map(m=>`<td class="num">${colT[m]?num(colT[m]):''}</td>`).join('')}<td class="num">${num(grand)}</td></tr>`;
+  document.getElementById('repMatrix').innerHTML=h+`</tbody>`;
+  document.getElementById('repMatrix')._data = {months, used, cell, colT};
+}
+
+/* ==================================================================
+   決算（基準版）— 就労支援の事業の会計処理の基準に沿った集計
+   表2・表3に代えて表4を作成する簡便法（年間売上5,000万円以下・多種少額）
+   ================================================================== */
+
+/** 費目IDから表4の科目キー（大区分＋科目名）を得る */
+function stdOf(costId){
+  const c = DB.costs.find(x=>x.id===costId);
+  return c ? {grp:c.grp||'経費', std:c.std||'雑費'} : {grp:'経費', std:'雑費'};
+}
+
+/**
+ * 年度の基準版集計。
+ * 作業別（列）は、直接費はそのまま、共通費・工賃・棚卸は売上比で按分する。
+ */
+function calcStd(fy){
+  const months = fyMonths(fy);
+  const set = new Set(months);
+  const rows = DB.entries.filter(e=>set.has(e.d.slice(0,7)));
+  const d = fyData(fy);
+  const jobs = DB.jobs.slice();
+  const jid = jobs.map(j=>j.id);
+
+  // ---- 収益（作業別） ----
+  const sales = {}; jid.forEach(i=>sales[i]=0);
+  let income = 0;
+  rows.forEach(e=>{ if(e.t==='in'){ income+=e.a; if(sales[e.j]!==undefined) sales[e.j]+=e.a; } });
+  const share = id => income>0 ? (sales[id]||0)/income : (jid.length?1/jid.length:0);
+
+  // ---- 費用を表4の科目に集計（直接費／共通費に分けて） ----
+  // acc[grp][std] = {total, direct:{jobId:額}, common:額}
+  const acc = {};
+  const put = (grp,std,amt,jobId)=>{
+    acc[grp] = acc[grp] || {};
+    acc[grp][std] = acc[grp][std] || {total:0, direct:{}, common:0};
+    const a = acc[grp][std];
+    a.total += amt;
+    if(jobId && jobId!==COMMON_JOB.id && sales[jobId]!==undefined) a.direct[jobId]=(a.direct[jobId]||0)+amt;
+    else a.common += amt;
+  };
+  rows.forEach(e=>{
+    if(e.t==='out'){ const s=stdOf(e.c); put(s.grp, s.std, e.a, e.j); }
+    else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null); } // 工賃は共通→売上比で按分
+  });
+
+  /** 科目の作業別内訳（共通分は売上比按分） */
+  const byJob = (grp,std)=>{
+    const a = acc[grp] && acc[grp][std];
+    const out = {}; jid.forEach(i=>out[i]=0);
+    if(!a) return out;
+    jid.forEach(i=>{ out[i] = (a.direct[i]||0) + a.common*share(i); });
+    return out;
+  };
+  const amt = (grp,std)=> (acc[grp] && acc[grp][std]) ? acc[grp][std].total : 0;
+
+  // 売上比で按分するだけの値（棚卸など、作業に紐づかないもの）
+  const spread = v => { const o={}; jid.forEach(i=>o[i]=v*share(i)); return o; };
+  const addTo = (dst,src)=>{ jid.forEach(i=> dst[i]=(dst[i]||0)+(src[i]||0)); return dst; };
+  const zero = ()=>{ const o={}; jid.forEach(i=>o[i]=0); return o; };
+
+  // ---- I 材料費 ----
+  const matPurchase = amt('材料費','当期材料仕入高');
+  const matPurchaseJ = byJob('材料費','当期材料仕入高');
+  const currentMaterial = d.openMat + matPurchase - d.closeMat;
+  const currentMaterialJ = addTo(addTo(spread(d.openMat), matPurchaseJ), spread(-d.closeMat));
+
+  // ---- II 労務費 ----
+  const laborItems = STD_ITEMS['労務費'].map(s=>({name:s, total:amt('労務費',s), job:byJob('労務費',s)}));
+  const currentLabor = laborItems.reduce((s,x)=>s+x.total,0);
+  const currentLaborJ = laborItems.reduce((o,x)=>addTo(o,x.job), zero());
+
+  // ---- III 外注加工費 ----
+  const gaichu = amt('外注加工費','外注加工費');
+  const gaichuInner = amt('外注加工費','うち内部外注加工費');
+  const gaichuJ = addTo(byJob('外注加工費','外注加工費'), byJob('外注加工費','うち内部外注加工費'));
+  const currentGaichu = gaichu + gaichuInner;
+
+  // ---- IV 経費 ----
+  const keihiItems = STD_ITEMS['経費'].map(s=>({name:s, total:amt('経費',s), job:byJob('経費',s)}));
+  const currentKeihi = keihiItems.reduce((s,x)=>s+x.total,0);
+  const currentKeihiJ = keihiItems.reduce((o,x)=>addTo(o,x.job), zero());
+
+  // ---- 当期就労支援事業製造総費用 → 就労支援事業費 ----
+  const soHiyou = currentMaterial + currentLabor + currentGaichu + currentKeihi;
+  const soHiyouJ = addTo(addTo(addTo(Object.assign({},currentMaterialJ), currentLaborJ), gaichuJ), currentKeihiJ);
+  const jigyohi = soHiyou + d.openWip - d.closeWip;                    // 表4 就労支援事業費（＝表1のB）
+  const jigyohiJ = addTo(addTo(Object.assign({},soHiyouJ), spread(d.openWip)), spread(-d.closeWip));
+
+  // ---- 表1 ----
+  const shiire = amt('商品仕入','当期就労支援事業仕入高');              // C
+  const shiireJ = byJob('商品仕入','当期就労支援事業仕入高');
+  const genka = d.openProd + jigyohi + shiire - d.closeProd;            // A+B+C-D
+  const genkaJ = addTo(addTo(addTo(spread(d.openProd), jigyohiJ), shiireJ), spread(-d.closeProd));
+  const balance = income - genka;                                       // X-Y
+  const balanceJ = {}; jid.forEach(i=> balanceJ[i] = (sales[i]||0) - (genkaJ[i]||0));
+
+  // ---- 工賃の適正額（指定基準第201条） ----
+  const wagePaid = amt('労務費','利用者工賃') + amt('労務費','利用者賃金');
+  // 生産活動に係る経費（利用者賃金・工賃を除く）
+  const costExWage = genka - wagePaid;
+  const tsumitate = (d.koichinIn||0) + (d.setsubiIn||0);
+  const wageDue = income - costExWage - tsumitate;                      // 支払うべき工賃
+
+  return {fy, months, d, jobs, jid, sales, income, share,
+          matPurchase, matPurchaseJ, currentMaterial, currentMaterialJ,
+          laborItems, currentLabor, currentLaborJ,
+          gaichu, gaichuInner, gaichuJ, currentGaichu,
+          keihiItems, currentKeihi, currentKeihiJ,
+          soHiyou, soHiyouJ, jigyohi, jigyohiJ,
+          shiire, shiireJ, genka, genkaJ, balance, balanceJ,
+          wagePaid, costExWage, tsumitate, wageDue};
+}
+
+function renderKessanSelectors(){
+  const sel=document.getElementById('ksFy'), keep=sel.value;
+  sel.innerHTML = allFys().map(fy=>`<option value="${fy}">${fyLabel(fy)}</option>`).join('');
+  if(keep) sel.value=keep;
+}
+function ksFyValue(){ const v=document.getElementById('ksFy').value; return v?+v:fyOf(todayISO()); }
+
+function saveFyData(){
+  const fy = ksFyValue(), d = fyData(fy);
+  const g = id => Math.round(+document.getElementById(id).value)||0;
+  d.openMat=g('ksOpenMat'); d.closeMat=g('ksCloseMat');
+  d.openWip=g('ksOpenWip'); d.closeWip=g('ksCloseWip');
+  d.openProd=g('ksOpenProd'); d.closeProd=g('ksCloseProd');
+  d.koichinIn=g('ksKoichinIn'); d.koichinOut=g('ksKoichinOut');
+  d.setsubiIn=g('ksSetsubiIn'); d.setsubiOut=g('ksSetsubiOut');
+  saveMaster(); renderKessan();
+}
+
+function periodLabel(fy){
+  const s=fyStart(), e=s===1?12:s-1, ey=s===1?fy:fy+1;
+  const last=new Date(ey, e, 0).getDate();
+  return `自 ${fy}年${s}月1日　至 ${ey}年${e}月${last}日`;
+}
+
+function renderKessan(){
+  renderKessanSelectors();
+  const fy = ksFyValue();
+  const c = calcStd(fy);
+  const d = c.d;
+  // 決算整理欄に反映
+  const st=(id,v)=>{ const el=document.getElementById(id); if(el) el.value=v||0; };
+  st('ksOpenMat',d.openMat); st('ksCloseMat',d.closeMat);
+  st('ksOpenWip',d.openWip); st('ksCloseWip',d.closeWip);
+  st('ksOpenProd',d.openProd); st('ksCloseProd',d.closeProd);
+  st('ksKoichinIn',d.koichinIn); st('ksKoichinOut',d.koichinOut);
+  st('ksSetsubiIn',d.setsubiIn); st('ksSetsubiOut',d.setsubiOut);
+
+  document.getElementById('ksPeriod1').textContent = periodLabel(fy);
+  document.getElementById('ksPeriod4').textContent = periodLabel(fy);
+
+  // ---- 工賃の適正額 ----
+  const diff = c.wageDue - c.wagePaid;
+  document.getElementById('ksWageKpis').innerHTML = `
+    <div class="kpi in"><div class="k">生産活動収入</div><div class="v">${yen(c.income)}</div></div>
+    <div class="kpi out"><div class="k">生産活動に係る経費<br><span style="font-weight:400">（工賃を除く）</span></div><div class="v">${yen(c.costExWage)}</div></div>
+    <div class="kpi wage"><div class="k">支払うべき工賃</div><div class="v">${yen(c.wageDue)}</div>
+      ${c.tsumitate?`<div class="s">積立金繰入 ${yen(c.tsumitate)} 控除後</div>`:''}</div>
+    <div class="kpi bal ${diff>0?'':'neg'}"><div class="k">実際に支払った工賃</div><div class="v">${yen(c.wagePaid)}</div>
+      <div class="s">差 ${yen(diff)}</div></div>`;
+  const note = document.getElementById('ksWageNote');
+  if(Math.abs(diff) < 1){
+    note.innerHTML = `<div class="banner info">✅ 収入から経費を引いた額が、そのまま工賃として支払われています。</div>`;
+  }else if(diff > 0){
+    note.innerHTML = `<div class="banner warn">⚠ あと <b>${yen(diff)}</b> を工賃として支払う必要があります。または、工賃変動積立金・設備等整備積立金として計上します（上の「決算整理の入力」の積立金欄）。</div>`;
+  }else{
+    note.innerHTML = `<div class="banner warn">⚠ 支払った工賃が <b>${yen(-diff)}</b> 多く、生産活動が赤字です。自立支援給付費を工賃に充ててはならないとされているため、経費の計上もれがないか確認してください。</div>`;
+  }
+
+  const showJobs = DB.settings.stdJobBreakdown !== false;
+  const cols = showJobs ? c.jobs.filter(j=>c.sales[j.id] || c.jigyohiJ[j.id]) : [];
+  const th = cols.map(j=>`<th>${esc(j.name)}</th>`).join('');
+  const blank = ()=> cols.map(()=>`<td class="num">—</td>`).join('');
+  /** 作業別セル。按分の端数を最大列に寄せ、各列の和を合計欄に一致させる */
+  const cell = (obj, total)=>{
+    if(!cols.length) return '';
+    const vals = cols.map(j=>obj[j.id]||0);
+    const r = vals.map(v=>Math.round(v));
+    if(total!=null && isFinite(total)){
+      const diff = Math.round(total) - r.reduce((a,b)=>a+b,0);
+      if(diff!==0 && r.length){
+        let idx=0; vals.forEach((v,i)=>{ if(Math.abs(v)>Math.abs(vals[idx])) idx=i; });
+        r[idx]+=diff;
+      }
+    }
+    return r.map(v=>`<td class="num">${v?num(v):'—'}</td>`).join('');
+  };
+
+  // ---- 表1 ----
+  let t1=`<thead><tr><th style="text-align:left">勘定科目</th><th>合　計</th>${th}</tr></thead><tbody>`;
+  t1+=`<tr><td style="text-align:left">収益　就労支援事業収益</td><td class="num">${num(c.income)}</td>${cell(c.sales,c.income)}</tr>`;
+  t1+=`<tr class="total"><td style="text-align:left;padding-left:24px">就労支援事業活動収益計</td><td class="num">${num(c.income)}</td>${cell(c.sales,c.income)}</tr>`;
+  t1+=`<tr><td style="text-align:left">費用　就労支援事業販売原価</td><td class="num">${num(c.genka)}</td>${cell(c.genkaJ,c.genka)}</tr>`;
+  t1+=`<tr><td style="text-align:left;padding-left:24px">期首製品（商品）棚卸高</td><td class="num">${num(d.openProd)}</td>${blank()}</tr>`;
+  t1+=`<tr><td style="text-align:left;padding-left:24px">当期就労支援事業費 <span style="color:var(--sub);font-size:12px">（表4より）</span></td><td class="num">${num(c.jigyohi)}</td>${cell(c.jigyohiJ,c.jigyohi)}</tr>`;
+  t1+=`<tr><td style="text-align:left;padding-left:24px">当期就労支援事業仕入高</td><td class="num">${num(c.shiire)}</td>${cell(c.shiireJ,c.shiire)}</tr>`;
+  t1+=`<tr><td style="text-align:left;padding-left:48px">合　計</td><td class="num">${num(d.openProd+c.jigyohi+c.shiire)}</td>${blank()}</tr>`;
+  t1+=`<tr><td style="text-align:left;padding-left:24px">期末製品（商品）棚卸高</td><td class="num">${num(d.closeProd)}</td>${blank()}</tr>`;
+  t1+=`<tr><td style="text-align:left;padding-left:48px">差　引</td><td class="num">${num(c.genka)}</td>${cell(c.genkaJ,c.genka)}</tr>`;
+  t1+=`<tr class="total"><td style="text-align:left;padding-left:24px">就労支援事業活動費用計</td><td class="num">${num(c.genka)}</td>${cell(c.genkaJ,c.genka)}</tr>`;
+  t1+=`<tr class="total"><td style="text-align:left">就労支援事業活動増減差額</td><td class="num ${c.balance<0?'minus':''}"><b>${num(c.balance)}</b></td>${cell(c.balanceJ,c.balance)}</tr>`;
+  document.getElementById('ksTable1').innerHTML = t1+`</tbody>`;
+
+  // ---- 表4 ----
+  let t4=`<thead><tr><th style="text-align:left">勘定科目</th><th>合　計</th>${th}</tr></thead><tbody>`;
+  const line=(label,total,jobObj,indent,strong)=>{
+    t4+=`<tr${strong?' class="total"':''}><td style="text-align:left;padding-left:${indent}px">${label}</td>
+      <td class="num">${total||total===0?num(total):''}</td>${jobObj?cell(jobObj,total):blank()}</tr>`;
+  };
+  line('Ⅰ　材料費','',null,4,true);
+  line('1．期首材料棚卸高', d.openMat, null, 24);
+  line('2．当期材料仕入高', c.matPurchase, c.matPurchaseJ, 24);
+  line('計', d.openMat+c.matPurchase, null, 48);
+  line('3．期末材料棚卸高', d.closeMat, null, 24);
+  line('当期材料費', c.currentMaterial, c.currentMaterialJ, 48, true);
+  line('Ⅱ　労務費','',null,4,true);
+  c.laborItems.forEach((x,i)=> line(`${i+1}．${x.name}`, x.total, x.job, 24));
+  line('当期労務費', c.currentLabor, c.currentLaborJ, 48, true);
+  line('Ⅲ　外注加工費','',null,4,true);
+  line('（うち内部外注加工費）', c.gaichuInner, null, 24);
+  line('当期外注加工費', c.currentGaichu, c.gaichuJ, 48, true);
+  line('Ⅳ　経費','',null,4,true);
+  c.keihiItems.forEach((x,i)=> line(`${i+1}．${x.name}`, x.total, x.job, 24));
+  line('当期経費', c.currentKeihi, c.currentKeihiJ, 48, true);
+  line('当期就労支援事業製造総費用', c.soHiyou, c.soHiyouJ, 24, true);
+  line('期首仕掛品棚卸高', d.openWip, null, 24);
+  line('合計', c.soHiyou+d.openWip, null, 48);
+  line('期末仕掛品棚卸高', d.closeWip, null, 24);
+  line('就労支援事業費', c.jigyohi, c.jigyohiJ, 24, true);
+  document.getElementById('ksTable4').innerHTML = t4+`</tbody>`;
+
+  // ---- 別紙1（前年度対比） ----
+  const prev = calcStd(fy-1);
+  const r=(label,a,b)=>`<tr><td style="text-align:left">${label}</td><td class="num">${num(a)}</td><td class="num">${num(b)}</td><td class="num ${a-b<0?'minus':''}">${num(a-b)}</td></tr>`;
+  let b1=`<thead><tr><th style="text-align:left">勘定科目</th><th>当年度決算(A)</th><th>前年度決算(B)</th><th>増減(A)-(B)</th></tr></thead><tbody>`;
+  b1+=r('収益　就労支援事業収益', c.income, prev.income);
+  b1+=`<tr class="total"><td style="text-align:left">サービス活動収益計</td><td class="num">${num(c.income)}</td><td class="num">${num(prev.income)}</td><td class="num">${num(c.income-prev.income)}</td></tr>`;
+  b1+=r('費用　就労支援事業費用', c.genka, prev.genka);
+  b1+=`<tr class="total"><td style="text-align:left">サービス活動費用計</td><td class="num">${num(c.genka)}</td><td class="num">${num(prev.genka)}</td><td class="num">${num(c.genka-prev.genka)}</td></tr>`;
+  b1+=`<tr class="total"><td style="text-align:left">就労支援事業活動増減差額</td><td class="num ${c.balance<0?'minus':''}"><b>${num(c.balance)}</b></td><td class="num">${num(prev.balance)}</td><td class="num">${num(c.balance-prev.balance)}</td></tr>`;
+  b1+=r('工賃変動積立金 繰入', d.koichinIn, fyData(fy-1).koichinIn);
+  b1+=r('工賃変動積立金 取崩', d.koichinOut, fyData(fy-1).koichinOut);
+  b1+=r('設備等整備積立金 繰入', d.setsubiIn, fyData(fy-1).setsubiIn);
+  b1+=r('設備等整備積立金 取崩', d.setsubiOut, fyData(fy-1).setsubiOut);
+  document.getElementById('ksBesshi1').innerHTML = b1+`</tbody>`;
+}
+
+function exportKessanCsv(){
+  const fy = ksFyValue();
+  const lines=[];
+  const dump=(title,tableId)=>{
+    lines.push(title);
+    const tbl=document.getElementById(tableId);
+    [...tbl.querySelectorAll('tr')].forEach(tr=>{
+      lines.push([...tr.children].map(td=>csvCell(td.innerText.replace(/\s+/g,' ').trim())).join(','));
+    });
+    lines.push('');
+  };
+  lines.push(csvCell(`就労支援事業会計　${fyLabel(fy)}　${periodLabel(fy)}`)); lines.push('');
+  dump('（表1）就労支援事業別事業活動明細書','ksTable1');
+  dump('（表4）就労支援事業明細書','ksTable4');
+  dump('（別紙1）就労支援事業事業活動計算書','ksBesshi1');
+  downloadFile(`就労支援事業会計_${fy}年度_${todayISO()}.csv`, lines.join('\r\n'));
+  toast('CSVを書き出しました');
+}
+
+/* ============ 明細 ============ */
+function renderListSelectors(){
+  const fs=document.getElementById('lsFy'), keep=fs.value;
+  fs.innerHTML = '<option value="">すべての年度</option>' + allFys().map(fy=>`<option value="${fy}">${fyLabel(fy)}</option>`).join('');
+  fs.value = keep;
+  const ms=document.getElementById('lsMonth'), keepM=ms.value;
+  const fy = fs.value ? +fs.value : null;
+  const months = fy!==null ? fyMonths(fy) : [...new Set(DB.entries.map(e=>e.d.slice(0,7)))].sort().reverse();
+  ms.innerHTML = '<option value="">すべて</option>' + months.map(m=>`<option value="${m}">${monthLabelFull(m)}</option>`).join('');
+  ms.value = keepM;
+  const js=document.getElementById('lsJob'), keepJ=js.value;
+  js.innerHTML = '<option value="">すべての作業</option>' + allJobs().map(j=>`<option value="${j.id}">${esc(j.name)}</option>`).join('');
+  js.value = keepJ;
+}
+
+function filteredEntries(){
+  const fy=document.getElementById('lsFy').value;
+  const m=document.getElementById('lsMonth').value;
+  const j=document.getElementById('lsJob').value;
+  const t=document.getElementById('lsType').value;
+  const q=(document.getElementById('lsQ').value||'').trim();
+  return DB.entries.filter(e=>{
+    if(fy && fyOf(e.d)!==+fy) return false;
+    if(m && e.d.slice(0,7)!==m) return false;
+    if(j && e.j!==j) return false;
+    if(t && e.t!==t) return false;
+    if(q && !((e.m||'').includes(q) || jobName(e.j).includes(q))) return false;
+    return true;
+  }).sort((a,b)=> b.d.localeCompare(a.d) || (b.ts||'').localeCompare(a.ts||''));
+}
+
+function renderList(){
+  renderListSelectors();
+  const list=filteredEntries();
+  let inS=0,outS=0,wS=0;
+  list.forEach(e=>{ if(e.t==='in')inS+=e.a; else if(e.t==='out')outS+=e.a; else wS+=e.a; });
+  document.getElementById('lsCount').textContent =
+    `${list.length}件 ／ 売上 ${yen(inS)}・経費 ${yen(outS)}・工賃 ${yen(wS)}・差引 ${yen(inS-outS-wS)}`;
+
+  let h=`<thead><tr><th>日付</th><th>種類</th><th>作業</th><th style="text-align:left">メモ</th><th>金額</th><th>入金日</th><th></th></tr></thead><tbody>`;
+  if(!list.length) h+=`<tr><td colspan="7" style="text-align:center;color:var(--sub);padding:24px">該当する明細がありません</td></tr>`;
+  list.slice(0,500).forEach(e=>{
+    h+=`<tr>
+      <td>${e.d.replace(/-/g,'/')}</td>
+      <td>${typePill(e.t)}</td>
+      <td style="text-align:right">${esc(e.t==='wage'?'利用者工賃':jobName(e.j))}${e.t==='out'?`<br><span style="color:var(--sub);font-size:11px">${esc(costName(e.c))}</span>`:''}</td>
+      <td style="text-align:left">${esc(e.m||'')}</td>
+      <td class="num"><b>${num(e.a)}</b></td>
+      <td style="font-size:12px;color:var(--sub)">${e.p?e.p.replace(/-/g,'/'):''}</td>
+      <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">直す</button></td>
+    </tr>`;
+  });
+  if(list.length>500) h+=`<tr><td colspan="7" style="text-align:center;color:var(--sub)">…ほか ${list.length-500} 件（絞り込んでください）</td></tr>`;
+  document.getElementById('lsTable').innerHTML=h+`</tbody>`;
+}
+
+/* ============ 編集 ============ */
+function openEdit(id){
+  const e=DB.entries.find(x=>x.id===id); if(!e) return;
+  document.getElementById('edId').value=e.id;
+  document.getElementById('edDate').value=e.d;
+  document.getElementById('edType').value=e.t;
+  document.getElementById('edJob').innerHTML = allJobs().map(j=>`<option value="${j.id}">${esc(j.name)}</option>`).join('');
+  document.getElementById('edJob').value=e.j||'';
+  document.getElementById('edCost').innerHTML = DB.costs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  document.getElementById('edCost').value=e.c||'other';
+  document.getElementById('edAmount').value=e.a;
+  document.getElementById('edDeposit').value=e.p||'';
+  document.getElementById('edMemo').value=e.m||'';
+  onEdTypeChange();
+  document.getElementById('editModal').classList.add('open');
+}
+function onEdTypeChange(){
+  const t=document.getElementById('edType').value;
+  document.getElementById('edCostWrap').style.display = t==='out'?'':'none';
+  document.getElementById('edJob').disabled = (t==='wage');
+}
+async function saveEdit(){
+  const id=document.getElementById('edId').value;
+  const e=DB.entries.find(x=>x.id===id); if(!e) return;
+  const a=Math.round(+document.getElementById('edAmount').value);
+  if(!a||isNaN(a)){ alert('金額を入れてください。'); return; }
+  const t=document.getElementById('edType').value;
+  const ne=Object.assign({},e,{
+    d:document.getElementById('edDate').value||e.d, t, a,
+    j: t==='wage'?'':document.getElementById('edJob').value,
+    c: t==='out'?document.getElementById('edCost').value:'',
+    p: t==='in'?document.getElementById('edDeposit').value:'',
+    m: document.getElementById('edMemo').value.trim()
+  });
+  await putEntry(ne);
+  closeModal('editModal'); toast('直しました'); renderAll();
+}
+async function deleteEdit(){
+  const id=document.getElementById('edId').value;
+  if(!confirm('この行を消します。よろしいですか？')) return;
+  await removeEntry(id);
+  closeModal('editModal'); toast('消しました'); renderAll();
+}
+
+/* ============ 入金票 ============ */
+function renderDepositSelectors(){
+  const sel=document.getElementById('dpDate'), keep=sel.value;
+  const dates=[...new Set(DB.entries.filter(e=>e.p).map(e=>e.p))].sort().reverse();
+  sel.innerHTML = dates.length ? dates.map(d=>`<option value="${d}">${d.replace(/-/g,'/')}</option>`).join('')
+                               : '<option value="">（入金日が入っている明細がありません）</option>';
+  if(keep && dates.includes(keep)) sel.value=keep;
+}
+function renderDeposit(){
+  renderDepositSelectors();
+  const d=document.getElementById('dpDate').value;
+  const body=document.getElementById('dpBody');
+  if(!d){ body.innerHTML='<p class="hint">明細の「入金日」を入れると、ここに集計が出ます。</p>'; }
+  else{
+    const rows=DB.entries.filter(e=>e.p===d && e.t==='in');
+    const byJob={};
+    rows.forEach(e=>{ byJob[e.j]=(byJob[e.j]||0)+e.a; });
+    const total=rows.reduce((s,e)=>s+e.a,0);
+    let h=`<h2 style="font-size:20px">入金票</h2>
+      <div class="row" style="justify-content:space-between;margin-bottom:12px">
+        <div>入金日：<b style="font-size:18px">${d.replace(/-/g,'/')}</b></div>
+        <div>合計：<b style="font-size:22px">${yen(total)}</b></div>
+      </div>
+      <div class="tablewrap"><table><thead><tr><th>作業</th><th>件数</th><th>金額</th></tr></thead><tbody>`;
+    Object.entries(byJob).sort((a,b)=>b[1]-a[1]).forEach(([j,v])=>{
+      const n=rows.filter(e=>e.j===j).length;
+      h+=`<tr><td>${esc(jobName(j))}</td><td class="num">${n}</td><td class="num"><b>${num(v)}</b></td></tr>`;
+    });
+    h+=`<tr class="total"><td>合計</td><td class="num">${rows.length}</td><td class="num">${num(total)}</td></tr></tbody></table></div>`;
+    h+=`<h3>内訳</h3><div class="tablewrap"><table><thead><tr><th>日付</th><th>作業</th><th style="text-align:left">メモ</th><th>金額</th></tr></thead><tbody>`;
+    rows.sort((a,b)=>a.d.localeCompare(b.d)).forEach(e=>{
+      h+=`<tr><td>${e.d.replace(/-/g,'/')}</td><td style="text-align:right">${esc(jobName(e.j))}</td><td style="text-align:left">${esc(e.m||'')}</td><td class="num">${num(e.a)}</td></tr>`;
+    });
+    h+=`</tbody></table></div>`;
+    body.innerHTML=h;
+  }
+  // 未入金
+  const pend=DB.entries.filter(e=>e.t==='in' && !e.p).sort((a,b)=>a.d.localeCompare(b.d));
+  let p=`<thead><tr><th>日付</th><th>作業</th><th style="text-align:left">メモ</th><th>金額</th><th class="noprint"></th></tr></thead><tbody>`;
+  if(!pend.length) p+=`<tr><td colspan="5" style="text-align:center;color:var(--sub);padding:16px">ありません 👍</td></tr>`;
+  pend.slice(0,60).forEach(e=>{
+    p+=`<tr><td>${e.d.replace(/-/g,'/')}</td><td style="text-align:right">${esc(jobName(e.j))}</td><td style="text-align:left">${esc(e.m||'')}</td><td class="num">${num(e.a)}</td>
+        <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">入金日を入れる</button></td></tr>`;
+  });
+  if(pend.length>60) p+=`<tr><td colspan="5" style="text-align:center;color:var(--sub)">…ほか ${pend.length-60} 件</td></tr>`;
+  document.getElementById('dpPending').innerHTML=p+`</tbody>`;
+}
+
+/* ============ 設定 ============ */
+function renderSettings(){
+  // 作業
+  let h=`<thead><tr><th style="text-align:left">作業名</th><th>分類</th><th>使用</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  DB.jobs.forEach(j=>{
+    h+=`<tr>
+      <td style="text-align:left"><input type="text" value="${esc(j.name)}" onchange="renameJob('${j.id}',this.value)" style="padding:6px"></td>
+      <td><select onchange="regroupJob('${j.id}',this.value)" style="padding:6px">
+        ${['商品販売','弁当','委託作業','その他'].map(g=>`<option ${j.group===g?'selected':''}>${g}</option>`).join('')}
+      </select></td>
+      <td><label style="cursor:pointer"><input type="checkbox" ${j.active?'checked':''} onchange="toggleJob('${j.id}',this.checked)"> 使う</label></td>
+      <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delJob('${j.id}')">削除</button></td>
+    </tr>`;
+  });
+  document.getElementById('setJobTable').innerHTML=h+`</tbody>`;
+
+  // モード
+  document.getElementById('setMode').value = DB.settings.mode||'simple';
+  document.getElementById('modeHint').textContent = isStd()
+    ? '「決算（基準版）」タブに表1・表4・別紙1が出ます。費目には基準の勘定科目を紐づけてください。'
+    : 'ふだんの管理用の画面です。決算のときは基準版に切り替えてください（データはそのまま使えます）。';
+  document.getElementById('stdOptions').style.display = isStd()?'':'none';
+  document.getElementById('setJobBreakdown').checked = DB.settings.stdJobBreakdown!==false;
+
+  // 費目（基準版では表4の勘定科目を紐づける）
+  const grpSel = x => `<select onchange="updCostStd('${x.id}','grp',this.value)" style="padding:6px">
+      ${STD_GROUPS.map(g=>`<option ${x.grp===g?'selected':''}>${g}</option>`).join('')}</select>`;
+  const stdSel = x => `<select onchange="updCostStd('${x.id}','std',this.value)" style="padding:6px">
+      ${(STD_ITEMS[x.grp]||STD_ITEMS['経費']).map(s=>`<option ${x.std===s?'selected':''}>${esc(s)}</option>`).join('')}</select>`;
+  let c=`<thead><tr><th style="text-align:left">費目名</th>${isStd()?'<th>区分</th><th>基準の勘定科目（表4）</th>':''}<th>使用</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  DB.costs.forEach(x=>{
+    c+=`<tr>
+      <td style="text-align:left"><input type="text" value="${esc(x.name)}" onchange="renameCost('${x.id}',this.value)" style="padding:6px"></td>
+      ${isStd()?`<td>${grpSel(x)}</td><td>${stdSel(x)}</td>`:''}
+      <td><label style="cursor:pointer"><input type="checkbox" ${x.active?'checked':''} onchange="toggleCost('${x.id}',this.checked)"> 使う</label></td>
+      <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delCost('${x.id}')">削除</button></td>
+    </tr>`;
+  });
+  document.getElementById('setCostTable').innerHTML=c+`</tbody>`;
+
+  // よく使う経費（業者）
+  const jobOpts = j => allJobs().map(x=>`<option value="${x.id}" ${x.id===j?'selected':''}>${esc(x.name)}</option>`).join('');
+  const costOpts = c => DB.costs.map(x=>`<option value="${x.id}" ${x.id===c?'selected':''}>${esc(x.name)}</option>`).join('');
+  let pt=`<thead><tr><th style="text-align:left">業者名</th><th>作業</th><th>費目</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  if(!DB.presets.length){
+    pt+=`<tr><td colspan="4" style="text-align:center;color:var(--sub);padding:20px">まだ登録がありません。下の欄から追加してください。</td></tr>`;
+  }
+  DB.presets.forEach(p=>{
+    pt+=`<tr>
+      <td style="text-align:left"><input type="text" value="${esc(p.name)}" onchange="updPreset('${p.id}','name',this.value)" style="padding:6px"></td>
+      <td><select onchange="updPreset('${p.id}','j',this.value)" style="padding:6px">${jobOpts(p.j)}</select></td>
+      <td><select onchange="updPreset('${p.id}','c',this.value)" style="padding:6px">${costOpts(p.c)}</select></td>
+      <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delPreset('${p.id}')">削除</button></td>
+    </tr>`;
+  });
+  document.getElementById('setPresetTable').innerHTML=pt+`</tbody>`;
+  document.getElementById('newPresetJob').innerHTML = jobOpts(COMMON_JOB.id);
+  document.getElementById('newPresetCost').innerHTML = costOpts('shokuzai');
+
+  document.getElementById('setAlloc').value = DB.settings.alloc||'sales';
+  onAllocChange(true);
+
+  const fs=document.getElementById('setFyStart');
+  fs.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('');
+  fs.value = fyStart();
+}
+function renameJob(id,v){ const j=jobById(id); if(j){ j.name=v.trim()||j.name; saveMaster(); renderAll(); } }
+function regroupJob(id,v){ const j=jobById(id); if(j){ j.group=v; saveMaster(); renderAll(); } }
+function toggleJob(id,v){ const j=jobById(id); if(j){ j.active=v; saveMaster(); renderAll(); } }
+function delJob(id){
+  const used=DB.entries.filter(e=>e.j===id).length;
+  if(used){ alert(`この作業は明細で ${used} 件使われているので消せません。「使う」のチェックを外すとボタンから隠せます。`); return; }
+  if(!confirm('この作業を消しますか？')) return;
+  DB.jobs=DB.jobs.filter(j=>j.id!==id); saveMaster(); renderAll();
+}
+function addJob(){
+  const n=document.getElementById('newJobName').value.trim();
+  if(!n){ alert('名前を入れてください'); return; }
+  DB.jobs.push({id:genId(), name:n, group:document.getElementById('newJobGroup').value, active:true});
+  document.getElementById('newJobName').value='';
+  saveMaster(); renderAll(); toast('追加しました');
+}
+function renameCost(id,v){ const c=DB.costs.find(c=>c.id===id); if(c){ c.name=v.trim()||c.name; saveMaster(); renderAll(); } }
+function toggleCost(id,v){ const c=DB.costs.find(c=>c.id===id); if(c){ c.active=v; saveMaster(); renderAll(); } }
+function delCost(id){
+  const used=DB.entries.filter(e=>e.c===id).length;
+  if(used){ alert(`この費目は ${used} 件で使われているので消せません。`); return; }
+  DB.costs=DB.costs.filter(c=>c.id!==id); saveMaster(); renderAll();
+}
+function addCost(){
+  const n=document.getElementById('newCostName').value.trim();
+  if(!n){ alert('名前を入れてください'); return; }
+  DB.costs.push({id:genId(), name:n, active:true});
+  document.getElementById('newCostName').value='';
+  saveMaster(); renderAll(); toast('追加しました');
+}
+function onModeChange(){
+  DB.settings.mode = document.getElementById('setMode').value;
+  saveMaster(); renderAll();
+  toast(isStd()?'基準版に切り替えました':'簡易版に切り替えました');
+}
+function onJobBreakdownChange(){
+  DB.settings.stdJobBreakdown = document.getElementById('setJobBreakdown').checked;
+  saveMaster(); renderAll();
+}
+function updCostStd(id,key,v){
+  const c=DB.costs.find(x=>x.id===id); if(!c) return;
+  c[key]=v;
+  if(key==='grp' && !(STD_ITEMS[v]||[]).includes(c.std)) c.std = STD_ITEMS[v][0];
+  saveMaster(); renderAll();
+}
+
+function addPreset(){
+  const n=document.getElementById('newPresetName').value.trim();
+  if(!n){ alert('業者名を入れてください'); return; }
+  DB.presets.push({id:genId(), name:n,
+    j:document.getElementById('newPresetJob').value,
+    c:document.getElementById('newPresetCost').value});
+  document.getElementById('newPresetName').value='';
+  saveMaster(); renderAll(); toast('追加しました');
+}
+function updPreset(id,key,v){ const p=DB.presets.find(x=>x.id===id); if(p){ p[key]= key==='name' ? (v.trim()||p.name) : v; saveMaster(); renderAll(); } }
+function delPreset(id){
+  if(!confirm('この業者を消しますか？（登録済みの明細はそのまま残ります）')) return;
+  DB.presets=DB.presets.filter(p=>p.id!==id); saveMaster(); renderAll();
+}
+
+function onAllocChange(silent){
+  const v=document.getElementById('setAlloc').value;
+  DB.settings.alloc=v;
+  document.getElementById('allocManual').style.display = v==='manual'?'':'none';
+  if(v==='manual'){
+    const r=DB.settings.allocRatio||{};
+    let h=`<thead><tr><th style="text-align:left">作業</th><th>比率</th></tr></thead><tbody>`;
+    DB.jobs.forEach(j=>{
+      h+=`<tr><td style="text-align:left">${esc(j.name)}</td>
+        <td><input type="number" value="${r[j.id]||0}" min="0" onchange="setRatio('${j.id}',this.value)" style="width:100px;text-align:right;padding:6px"></td></tr>`;
+    });
+    document.getElementById('allocTable').innerHTML=h+`</tbody>`;
+  }
+  if(!silent){ saveMaster(); renderAll(); }
+}
+function setRatio(id,v){ DB.settings.allocRatio=DB.settings.allocRatio||{}; DB.settings.allocRatio[id]=+v||0; saveMaster(); renderAll(); }
+function onFyStartChange(){ DB.settings.fyStart=+document.getElementById('setFyStart').value; saveMaster(); renderAll(); }
+
+/* ============ 取り込み・書き出し ============ */
+const IMPORT_MAP = {
+  '弁当販売|':'bento',
+  '委託作業|清掃':'seiso',
+  '委託作業|シール貼り作業':'seal',
+  '委託作業|洗車作業':'sensha',
+  '商品販売|焼菓子販売':'yakigashi',
+  '商品販売|焼き菓子販売':'yakigashi',
+  '商品販売|ドリンク':'drink',
+  '商品販売|手工芸':'shukogei',
+  '商品販売|マンゴー販売':'other',
+  '商品販売|':'other'
+};
+function mapJob(k1,k2){
+  const key=(k1||'').trim()+'|'+(k2||'').trim();
+  if(IMPORT_MAP[key]) return IMPORT_MAP[key];
+  // 名前が一致する作業を探す
+  const byName = DB.jobs.find(j=>j.name===(k2||'').trim() || j.name===(k1||'').trim());
+  if(byName) return byName.id;
+  return null;
+}
+
+async function importSeed(){
+  if(typeof SEED_FY2025==='undefined' || !SEED_FY2025.length){ alert('取り込みデータがありません'); return; }
+  const exist = new Set(DB.entries.map(e=>e.d+'|'+e.t+'|'+e.a+'|'+(e.m||'')));
+  const list = SEED_FY2025
+    .filter(s=>!exist.has(s.d+'|'+s.t+'|'+s.a+'|'+(s.m||'')))
+    .map(s=>({id:genId(), d:s.d, t:s.t, a:s.a, j:s.j||'', c:s.c||'', m:s.m||'', p:s.p||'', ts:new Date().toISOString()}));
+  if(!list.length){ toast('すでに取り込み済みです'); return; }
+  if(!confirm(`Excelの ${list.length} 件を取り込みます。よろしいですか？`)) return;
+  await putEntries(list);
+  toast(list.length+'件 取り込みました'); renderAll();
+}
+
+function parseCsv(text){
+  const rows=[]; let row=[], cell='', q=false;
+  text = text.replace(/^﻿/,'');
+  for(let i=0;i<text.length;i++){
+    const ch=text[i];
+    if(q){
+      if(ch==='"'){ if(text[i+1]==='"'){cell+='"';i++;} else q=false; }
+      else cell+=ch;
+    }else{
+      if(ch==='"') q=true;
+      else if(ch===','){ row.push(cell); cell=''; }
+      else if(ch==='\n'){ row.push(cell); rows.push(row); row=[]; cell=''; }
+      else if(ch!=='\r') cell+=ch;
+    }
+  }
+  if(cell!=='' || row.length){ row.push(cell); rows.push(row); }
+  return rows.filter(r=>r.some(c=>c.trim()!==''));
+}
+
+function normDate(s){
+  s=(s||'').trim();
+  if(!s) return '';
+  const m=s.match(/^(\d{4})[-\/年](\d{1,2})[-\/月](\d{1,2})/);
+  if(m) return m[1]+'-'+String(+m[2]).padStart(2,'0')+'-'+String(+m[3]).padStart(2,'0');
+  const n=+s;
+  if(!isNaN(n) && n>20000 && n<80000){
+    const d=new Date(Date.UTC(1899,11,30)+n*86400000);
+    return d.toISOString().slice(0,10);
+  }
+  return '';
+}
+
+async function importCsvFile(ev){
+  const f=ev.target.files[0]; if(!f) return;
+  const text = await f.text();
+  ev.target.value='';
+  const rows=parseCsv(text);
+  if(rows.length<2){ alert('データが読み取れませんでした。'); return; }
+  const head=rows[0].map(h=>h.trim());
+  const idx=n=>head.findIndex(h=>h.includes(n));
+  const iD=idx('日付'), iM=idx('摘要'), iIn=idx('収入'), iOut=idx('支出'),
+        iK1=idx('勘定科目1')>=0?idx('勘定科目1'):idx('勘定科目１'),
+        iK2=idx('勘定科目2')>=0?idx('勘定科目2'):idx('勘定科目２'),
+        iP=idx('入金日');
+  if(iD<0){ alert('「日付」の列が見つかりません。1行目を「日付, 摘要, 収入, 支出, 勘定科目1, 勘定科目2, 入金日」にしてください。'); return; }
+  const list=[]; const skipped=[];
+  for(let i=1;i<rows.length;i++){
+    const r=rows[i];
+    const d=normDate(r[iD]); if(!d) continue;
+    const inc=iIn>=0?Math.round(+String(r[iIn]||'').replace(/[,¥\s]/g,'')):0;
+    const out=iOut>=0?Math.round(+String(r[iOut]||'').replace(/[,¥\s]/g,'')):0;
+    const k1=iK1>=0?(r[iK1]||'').trim():'', k2=iK2>=0?(r[iK2]||'').trim():'';
+    const memo=iM>=0?(r[iM]||'').trim():'';
+    const p=iP>=0?normDate(r[iP]):'';
+    if(memo.includes('繰越')) continue;
+    if(k1==='利用者工賃' || memo==='利用者工賃'){
+      if(out) list.push({id:genId(),d,t:'wage',a:out,j:'',c:'',m:memo,p:'',ts:new Date().toISOString()});
+      continue;
+    }
+    const j=mapJob(k1,k2);
+    if(inc){
+      if(!j){ skipped.push(`${d} ${memo}（${k1}/${k2}）`); continue; }
+      list.push({id:genId(),d,t:'in',a:inc,j,c:'',m:memo,p,ts:new Date().toISOString()});
+    }else if(out){
+      list.push({id:genId(),d,t:'out',a:out,j:j||COMMON_JOB.id,c:'other',m:memo,p:'',ts:new Date().toISOString()});
+    }
+  }
+  if(!list.length){ alert('取り込める行がありませんでした。'); return; }
+  let msg=`${list.length}件を取り込みます。`;
+  if(skipped.length) msg+=`\n（${skipped.length}件は作業が分からないため飛ばします）`;
+  if(!confirm(msg)) return;
+  await putEntries(list);
+  toast(list.length+'件 取り込みました'); renderAll();
+}
+
+function downloadFile(name, text, type){
+  const blob=new Blob(['﻿'+text],{type:type||'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob); a.download=name; a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href),1000);
+}
+function csvCell(v){ const s=String(v==null?'':v); return /[",\n]/.test(s)?'"'+s.replace(/"/g,'""')+'"':s; }
+
+function exportLedgerCsv(){
+  const list=[...DB.entries].sort((a,b)=>a.d.localeCompare(b.d));
+  const head=['日付','摘要','収入','支出','勘定科目1','勘定科目2','費目','入金日'];
+  const lines=[head.join(',')];
+  list.forEach(e=>{
+    const j=jobById(e.j);
+    lines.push([
+      e.d, e.m||'',
+      e.t==='in'?e.a:'', e.t!=='in'?e.a:'',
+      e.t==='wage'?'利用者工賃':(j?j.group:''),
+      e.t==='wage'?'':(j?j.name:''),
+      e.t==='out'?costName(e.c):'',
+      e.p||''
+    ].map(csvCell).join(','));
+  });
+  downloadFile('出納帳_'+todayISO()+'.csv', lines.join('\r\n'));
+  toast('CSVを書き出しました');
+}
+
+function exportReportCsv(){
+  const d=document.getElementById('repMatrix')._data;
+  if(!d){ alert('先に収支画面を表示してください'); return; }
+  const lines=[['作業',...d.months.map(monthLabelFull),'合計'].map(csvCell).join(',')];
+  d.used.forEach(j=>{
+    const tot=d.months.reduce((s,m)=>s+d.cell[j.id][m],0);
+    lines.push([j.name,...d.months.map(m=>d.cell[j.id][m]),tot].map(csvCell).join(','));
+  });
+  lines.push(['合計',...d.months.map(m=>d.colT[m]),d.months.reduce((s,m)=>s+d.colT[m],0)].map(csvCell).join(','));
+  downloadFile('作業別売上_'+todayISO()+'.csv', lines.join('\r\n'));
+  toast('CSVを書き出しました');
+}
+
+function exportBackup(){
+  downloadFile('backup_'+todayISO()+'.json', JSON.stringify(DB,null,1), 'application/json');
+  toast('バックアップを書き出しました');
+}
+
+async function clearAll(){
+  if(!confirm('すべての明細を消します。もとに戻せません。よろしいですか？')) return;
+  if(!confirm('本当に消してよろしいですか？')) return;
+  const ids=DB.entries.map(e=>e.id);
+  DB.entries=[]; saveLocal();
+  if(cloudOn()){
+    try{
+      for(let i=0;i<ids.length;i+=400){
+        const b=window._fbDb.batch();
+        ids.slice(i,i+400).forEach(id=>b.delete(entCol().doc(id)));
+        await b.commit();
+      }
+    }catch(e){ console.error(e); }
+  }
+  renderAll(); toast('消しました');
+}
+
+/* ============ タブ・全体描画 ============ */
+function showTab(name){
+  document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
+  document.getElementById('view-'+name).classList.add('active');
+  document.querySelectorAll('nav.tabs button').forEach(b=>b.classList.toggle('active', b.dataset.tab===name));
+  window.scrollTo(0,0);
+  if(name==='report') renderReport();
+  if(name==='list') renderList();
+  if(name==='deposit') renderDeposit();
+  if(name==='kessan') renderKessan();
+  if(name==='settings') renderSettings();
+  if(name==='entry') renderMemoChips();
+}
+
+function renderAll(){
+  document.getElementById('fyBadge').textContent = fyLabel(fyOf(todayISO()));
+  const hm=document.getElementById('homeMonth');
+  fillMonthSelectWith(hm, homeYm); hm.value=homeYm;
+  renderHome();
+  renderJobTiles(); renderCostTiles(); renderPresetTiles(); renderMemoChips();
+  document.getElementById('presetCard').style.display = (eType==='out' && DB.presets.length)?'':'none';
+  const active=[...document.querySelectorAll('nav.tabs button')].find(b=>b.classList.contains('active'));
+  const t=active?active.dataset.tab:'home';
+  document.getElementById('tabKessan').style.display = isStd()?'':'none';
+  if(!isStd() && t==='kessan'){ showTab('home'); return; }
+  if(t==='report') renderReport();
+  if(t==='list') renderList();
+  if(t==='deposit') renderDeposit();
+  if(t==='kessan') renderKessan();
+  if(t==='settings') renderSettings();
+  updateModeBanner();
+}
+
+/* ============ 画面の拡大（このパソコンだけの設定） ============ */
+const LS_ZOOM = 'shuro_kaikei_zoom';
+const ZOOM_STEPS = [100, 115, 130, 150];
+function applyZoom(z){
+  document.body.style.zoom = z + '%';
+  const b = document.getElementById('zoomBtn');
+  if(b) b.textContent = z===100 ? '🔍 文字の大きさ' : `🔍 ${z}%`;
+}
+function cycleZoom(){
+  const cur = +(localStorage.getItem(LS_ZOOM) || 100);
+  const next = ZOOM_STEPS[(ZOOM_STEPS.indexOf(cur)+1) % ZOOM_STEPS.length];
+  localStorage.setItem(LS_ZOOM, next);
+  applyZoom(next);
+  toast(next===100 ? 'もとの大きさに戻しました' : `${next}% に拡大しました`);
+}
+
+/* ============ PWA ============ */
+let _deferredPrompt=null;
+if('serviceWorker' in navigator){ window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{})); }
+window.addEventListener('beforeinstallprompt', e=>{ e.preventDefault(); _deferredPrompt=e; });
+window.addEventListener('appinstalled', ()=>{ _deferredPrompt=null; document.getElementById('installBtn').style.display='none'; });
+if(window.matchMedia('(display-mode: standalone)').matches) document.getElementById('installBtn').style.display='none';
+async function installApp(){
+  if(_deferredPrompt){ _deferredPrompt.prompt(); await _deferredPrompt.userChoice; _deferredPrompt=null; }
+  else alert('ブラウザのメニューから「アプリとしてインストール」または「ホーム画面に追加」を選んでください。');
+}
+
+/* ============ 起動 ============ */
+const SEED_FY2025 = [{"d":"2025-10-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2025-10-10"},{"d":"2025-10-10","t":"wage","a":714007,"j":"","m":"利用者工賃","p":""},{"d":"2025-10-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2025-10-22","t":"in","a":11618,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2025-10-22"},{"d":"2025-10-31","t":"in","a":29590,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2025-10-31","t":"in","a":230808,"j":"yakigashi","m":"焼菓子販売","p":"2025-10-31"},{"d":"2025-10-31","t":"in","a":51480,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2025-10-31","t":"in","a":5760,"j":"drink","m":"ドリンク販売","p":"2025-10-31"},{"d":"2025-10-31","t":"in","a":4200,"j":"shukogei","m":"手工芸","p":"2025-10-31"},{"d":"2025-10-31","t":"in","a":370200,"j":"bento","m":"弁当代（GHトグチ）","p":""},{"d":"2025-10-31","t":"in","a":909000,"j":"bento","m":"弁当代","p":""},{"d":"2025-10-31","t":"in","a":6160,"j":"seal","m":"山香","p":"2025-10-31"},{"d":"2025-10-31","t":"in","a":80,"j":"yakigashi","m":"雑収入","p":"2025-10-31"},{"d":"2025-10-22","t":"in","a":1100,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場）","p":"2025-10-22"},{"d":"2025-11-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2025-11-10"},{"d":"2025-11-10","t":"wage","a":644130,"j":"","m":"利用者工賃","p":""},{"d":"2025-11-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2025-11-20","t":"in","a":6947,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2025-11-20"},{"d":"2025-11-30","t":"in","a":5640,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2025-11-30","t":"in","a":123757,"j":"yakigashi","m":"焼菓子販売","p":"2025-11-30"},{"d":"2025-11-30","t":"in","a":43047,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2025-11-30","t":"in","a":5240,"j":"drink","m":"ドリンク販売","p":"2025-11-30"},{"d":"2025-11-30","t":"in","a":15560,"j":"shukogei","m":"手工芸","p":"2025-11-30"},{"d":"2025-11-30","t":"in","a":834600,"j":"bento","m":"弁当代（GHトグチ）","p":""},{"d":"2025-11-30","t":"in","a":324000,"j":"bento","m":"弁当代","p":""},{"d":"2025-11-30","t":"in","a":8448,"j":"seal","m":"山香","p":"2025-11-30"},{"d":"2025-11-30","t":"in","a":10,"j":"yakigashi","m":"雑収入","p":"2025-11-30"},{"d":"2025-11-20","t":"in","a":590,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場）","p":"2025-11-20"},{"d":"2025-12-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2026-12-10"},{"d":"2025-12-10","t":"wage","a":705211,"j":"","m":"利用者工賃","p":""},{"d":"2025-12-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2025-12-20","t":"in","a":6119,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-12-20"},{"d":"2025-12-30","t":"in","a":199232,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2025-12-30","t":"in","a":262298,"j":"yakigashi","m":"焼菓子販売","p":"2026-12-29"},{"d":"2025-12-30","t":"in","a":44300,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2025-12-30","t":"in","a":4320,"j":"drink","m":"ドリンク販売","p":"2026-12-29"},{"d":"2025-12-30","t":"in","a":17812,"j":"shukogei","m":"手工芸","p":"2026-12-29"},{"d":"2025-12-30","t":"in","a":367800,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2025-12-30","t":"in","a":922200,"j":"bento","m":"弁当代","p":""},{"d":"2025-12-30","t":"in","a":9339,"j":"seal","m":"山香","p":"2026-12-29"},{"d":"2025-12-30","t":"in","a":-80,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-12-29"},{"d":"2026-01-09","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2026-01-09"},{"d":"2026-01-09","t":"wage","a":630136,"j":"","m":"利用者工賃","p":""},{"d":"2026-01-09","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-01-20","t":"in","a":3374,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-01-20"},{"d":"2026-01-31","t":"in","a":29480,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-01-31","t":"in","a":105119,"j":"yakigashi","m":"焼菓子販売","p":"2026-02-02"},{"d":"2026-01-31","t":"in","a":62738,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-01-31","t":"in","a":3960,"j":"drink","m":"ドリンク販売","p":"2026-02-02"},{"d":"2026-01-31","t":"in","a":14230,"j":"shukogei","m":"手工芸","p":"2026-02-02"},{"d":"2026-01-31","t":"in","a":377400,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-01-31","t":"in","a":875400,"j":"bento","m":"弁当代","p":""},{"d":"2026-01-31","t":"in","a":2816,"j":"seal","m":"山香","p":""},{"d":"2026-01-31","t":"in","a":2,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-02-02"},{"d":"2026-01-31","t":"in","a":38390,"j":"yakigashi","m":"焼菓子販売（インフォマート様売上分）","p":"2026-01-30"},{"d":"2026-02-03","t":"in","a":1890,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場様売上分）","p":"2026-02-03"},{"d":"2026-02-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2026-02-10"},{"d":"2026-02-10","t":"wage","a":619206,"j":"","m":"利用者工賃","p":""},{"d":"2026-02-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-02-10","t":"in","a":47010,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場様売上分）","p":"2026-02-10"},{"d":"2026-02-17","t":"in","a":2400,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場様売上分）","p":"2026-02-17"},{"d":"2026-02-19","t":"in","a":1200,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場様売上分）","p":"2026-02-19"},{"d":"2026-02-20","t":"in","a":9827,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-02-20"},{"d":"2026-02-27","t":"in","a":39076,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-02-27","t":"in","a":205026,"j":"yakigashi","m":"焼菓子販売","p":"2026-03-03"},{"d":"2026-02-27","t":"in","a":66620,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-02-27","t":"in","a":4140,"j":"drink","m":"ドリンク販売","p":"2026-03-03"},{"d":"2026-02-27","t":"in","a":4730,"j":"shukogei","m":"手工芸","p":"2026-03-03"},{"d":"2026-02-27","t":"in","a":342600,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-02-27","t":"in","a":898800,"j":"bento","m":"弁当代","p":""},{"d":"2026-02-27","t":"in","a":7040,"j":"seal","m":"山香","p":"2026-03-03"},{"d":"2026-02-27","t":"in","a":-900,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-03-03"},{"d":"2026-03-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2026-03-10"},{"d":"2026-03-10","t":"wage","a":657741,"j":"","m":"利用者工賃","p":""},{"d":"2026-03-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-03-23","t":"in","a":20105,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-03-23"},{"d":"2026-03-31","t":"in","a":74649,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-03-31","t":"in","a":266872,"j":"yakigashi","m":"焼菓子販売","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":118665,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-03-31","t":"in","a":8690,"j":"drink","m":"ドリンク販売","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":32060,"j":"shukogei","m":"手工芸","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":367200,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":978600,"j":"bento","m":"弁当代","p":""},{"d":"2026-03-31","t":"in","a":7040,"j":"seal","m":"山香","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":-61,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-04-03"},{"d":"2026-04-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":""},{"d":"2026-04-10","t":"wage","a":665976,"j":"","m":"利用者工賃","p":""},{"d":"2026-04-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-04-20","t":"in","a":8261,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-04-20"},{"d":"2026-04-30","t":"in","a":20760,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-04-30","t":"in","a":226255,"j":"yakigashi","m":"焼菓子販売","p":"2026-05-07"},{"d":"2026-04-30","t":"in","a":54880,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-04-30","t":"in","a":4950,"j":"drink","m":"ドリンク販売","p":"2026-05-07"},{"d":"2026-04-30","t":"in","a":25976,"j":"shukogei","m":"手工芸","p":"2026-05-07"},{"d":"2026-04-30","t":"in","a":346800,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-04-30","t":"in","a":1124400,"j":"bento","m":"弁当代","p":""},{"d":"2026-04-30","t":"in","a":6644,"j":"seal","m":"山香","p":"2026-05-07"},{"d":"2026-04-30","t":"in","a":-10,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-05-07"},{"d":"2026-05-08","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":""},{"d":"2026-05-08","t":"wage","a":523588,"j":"","m":"利用者工賃","p":""},{"d":"2026-05-08","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-05-20","t":"in","a":6848,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-05-20"},{"d":"2026-05-29","t":"in","a":21130,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-05-29","t":"in","a":125645,"j":"yakigashi","m":"焼菓子販売","p":"2026-06-03"},{"d":"2026-05-29","t":"in","a":85256,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-05-29","t":"in","a":6400,"j":"drink","m":"ドリンク販売","p":"2026-06-03"},{"d":"2026-05-29","t":"in","a":8620,"j":"shukogei","m":"手工芸","p":"2026-06-03"},{"d":"2026-05-29","t":"in","a":417600,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-05-29","t":"in","a":973800,"j":"bento","m":"弁当代","p":""},{"d":"2026-05-29","t":"in","a":6692,"j":"seal","m":"山香","p":"2026-06-03"},{"d":"2026-05-29","t":"in","a":90,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-06-03"},{"d":"2026-06-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":""},{"d":"2026-06-10","t":"wage","a":522730,"j":"","m":"利用者工賃","p":""},{"d":"2026-06-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-06-20","t":"in","a":12347,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-06-20"},{"d":"2026-06-30","t":"in","a":39590,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-06-30","t":"in","a":82004,"j":"yakigashi","m":"焼菓子販売","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":84036,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-06-30","t":"in","a":5960,"j":"drink","m":"ドリンク販売","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":2000,"j":"shukogei","m":"手工芸","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":361800,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-06-30","t":"in","a":879000,"j":"bento","m":"弁当代","p":""},{"d":"2026-06-30","t":"in","a":3520,"j":"seal","m":"山香","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":80,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":166600,"j":"other","m":"きらめきマルシェ販売","p":"2026-07-01"},{"d":"2026-07-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":""},{"d":"2026-07-10","t":"wage","a":0,"j":"","m":"利用者工賃","p":""},{"d":"2026-07-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-07-20","t":"in","a":12509,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-07-21"},{"d":"2026-07-30","t":"in","a":44570,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-07-30","t":"in","a":69032,"j":"yakigashi","m":"焼菓子販売","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":87048,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-07-30","t":"in","a":2160,"j":"drink","m":"ドリンク販売","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":11030,"j":"shukogei","m":"手工芸","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":0,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-07-30","t":"in","a":0,"j":"bento","m":"弁当代","p":""},{"d":"2026-07-30","t":"in","a":5156,"j":"seal","m":"山香","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":29420,"j":"other","m":"商品販売（マンゴー）","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":500,"j":"sensha","m":"商品販売（洗車）","p":"2026-08-03"}];
+
+loadLocal();
+applyZoom(+(localStorage.getItem(LS_ZOOM) || 100));
+document.getElementById('eDate').value = todayISO();
+setEType('in');
+renderAll();
+initFirebase();
+</script>
+</body>
+</html>
