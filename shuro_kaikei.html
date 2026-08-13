@@ -132,7 +132,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 }
 @media print{
   header,nav.tabs,.noprint{display:none!important}
-  body{background:#fff;zoom:100%!important}
+  body{background:#fff}
   main{padding:0;max-width:none}
   .card{box-shadow:none;border:1px solid #999;page-break-inside:avoid}
 }
@@ -146,8 +146,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
   <span class="spacer"></span>
   <span class="badge" id="wsBadge"></span>
   <span class="badge" id="syncBadge"></span>
-  <button class="hbtn" id="zoomBtn" onclick="cycleZoom()" title="画面の文字や表を大きくします">🔍 文字の大きさ</button>
-  <button class="hbtn" id="installBtn" onclick="installApp()">⬇ アプリ化</button>
+  <button class="hbtn" id="installBtn" onclick="installApp()">⬇ デスクトップに追加</button>
   <button class="hbtn" id="logoutBtn" onclick="doLogout()" style="display:none">ログアウト</button>
 </header>
 
@@ -2137,22 +2136,6 @@ function renderAll(){
   updateModeBanner();
 }
 
-/* ============ 画面の拡大（このパソコンだけの設定） ============ */
-const LS_ZOOM = 'shuro_kaikei_zoom';
-const ZOOM_STEPS = [100, 115, 130, 150];
-function applyZoom(z){
-  document.body.style.zoom = z + '%';
-  const b = document.getElementById('zoomBtn');
-  if(b) b.textContent = z===100 ? '🔍 文字の大きさ' : `🔍 ${z}%`;
-}
-function cycleZoom(){
-  const cur = +(localStorage.getItem(LS_ZOOM) || 100);
-  const next = ZOOM_STEPS[(ZOOM_STEPS.indexOf(cur)+1) % ZOOM_STEPS.length];
-  localStorage.setItem(LS_ZOOM, next);
-  applyZoom(next);
-  toast(next===100 ? 'もとの大きさに戻しました' : `${next}% に拡大しました`);
-}
-
 /* ============ PWA ============ */
 let _deferredPrompt=null;
 if('serviceWorker' in navigator){ window.addEventListener('load',()=>navigator.serviceWorker.register('sw.js').catch(()=>{})); }
@@ -2161,7 +2144,7 @@ window.addEventListener('appinstalled', ()=>{ _deferredPrompt=null; document.get
 if(window.matchMedia('(display-mode: standalone)').matches) document.getElementById('installBtn').style.display='none';
 async function installApp(){
   if(_deferredPrompt){ _deferredPrompt.prompt(); await _deferredPrompt.userChoice; _deferredPrompt=null; }
-  else alert('ブラウザのメニューから「アプリとしてインストール」または「ホーム画面に追加」を選んでください。');
+  else alert('ブラウザのメニューから「アプリとしてインストール」または「デスクトップに追加」を選んでください。');
 }
 
 /* ============ 起動 ============ */
@@ -2181,7 +2164,6 @@ const SEED_FY2025 = [{"d":"2025-10-10","t":"in","a":10500,"j":"seiso","m":"清�
 })();
 
 loadLocal();
-applyZoom(+(localStorage.getItem(LS_ZOOM) || 100));
 document.getElementById('eDate').value = todayISO();
 setEType('in');
 renderAll();
