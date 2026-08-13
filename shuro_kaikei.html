@@ -1611,31 +1611,40 @@ function filteredEntries(){
     if(t && e.t!==t) return false;
     if(q && !((e.m||'').includes(q) || jobName(e.j).includes(q))) return false;
     return true;
-  }).sort((a,b)=> b.d.localeCompare(a.d) || (b.ts||'').localeCompare(a.ts||''));
+  }).sort((a,b)=> a.d.localeCompare(b.d) || (a.ts||'').localeCompare(b.ts||''));
 }
 
+/** 通常の出納帳形式（日付の古い順・収入と支出を分け、残高を積み上げる） */
 function renderList(){
   renderListSelectors();
   const list=filteredEntries();
-  let inS=0,outS=0,wS=0;
-  list.forEach(e=>{ if(e.t==='in')inS+=e.a; else if(e.t==='out')outS+=e.a; else wS+=e.a; });
+  let inS=0,outS=0,wS=0,bal=0;
+  const rows = list.map(e=>{
+    const inAmt = e.t==='in' ? e.a : 0;
+    const outAmt = (e.t==='out'||e.t==='wage') ? e.a : 0;
+    inS+=inAmt; if(e.t==='out')outS+=e.a; if(e.t==='wage')wS+=e.a;
+    bal += inAmt - outAmt;
+    return {e, inAmt, outAmt, bal};
+  });
   document.getElementById('lsCount').textContent =
     `${list.length}件 ／ 売上 ${yen(inS)}・経費 ${yen(outS)}・工賃 ${yen(wS)}・差引 ${yen(inS-outS-wS)}`;
 
-  let h=`<thead><tr><th>日付</th><th>種類</th><th>作業</th><th style="text-align:left">メモ</th><th>金額</th><th>入金日</th><th></th></tr></thead><tbody>`;
-  if(!list.length) h+=`<tr><td colspan="7" style="text-align:center;color:var(--sub);padding:24px">該当する明細がありません</td></tr>`;
-  list.slice(0,500).forEach(e=>{
+  let h=`<thead><tr><th>日付</th><th style="text-align:left">摘要</th><th>作業</th><th>収入</th><th>支出</th><th>残高</th><th>入金日</th><th></th></tr></thead><tbody>`;
+  if(!rows.length) h+=`<tr><td colspan="8" style="text-align:center;color:var(--sub);padding:24px">該当する明細がありません</td></tr>`;
+  const shown = rows.length>500 ? rows.slice(-500) : rows;
+  if(rows.length>500) h+=`<tr><td colspan="8" style="text-align:center;color:var(--sub)">…前 ${rows.length-500} 件は省略（絞り込んでください。残高には含まれています）</td></tr>`;
+  shown.forEach(({e,inAmt,outAmt,bal})=>{
     h+=`<tr>
       <td>${e.d.replace(/-/g,'/')}</td>
-      <td>${typePill(e.t)}</td>
-      <td style="text-align:right">${esc(e.t==='wage'?'利用者工賃':jobName(e.j))}${e.t==='out'?`<br><span style="color:var(--sub);font-size:11px">${esc(costName(e.c))}</span>`:''}</td>
       <td style="text-align:left">${esc(e.m||'')}</td>
-      <td class="num"><b>${num(e.a)}</b></td>
+      <td style="text-align:right">${esc(e.t==='wage'?'利用者工賃':jobName(e.j))}${e.t==='out'?`<br><span style="color:var(--sub);font-size:11px">${esc(costName(e.c))}</span>`:''}</td>
+      <td class="num" style="color:var(--blue)">${inAmt?num(inAmt):''}</td>
+      <td class="num" style="color:var(--orange)">${outAmt?num(outAmt):''}</td>
+      <td class="num"><b>${num(bal)}</b></td>
       <td style="font-size:12px;color:var(--sub)">${e.p?e.p.replace(/-/g,'/'):''}</td>
       <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">直す</button></td>
     </tr>`;
   });
-  if(list.length>500) h+=`<tr><td colspan="7" style="text-align:center;color:var(--sub)">…ほか ${list.length-500} 件（絞り込んでください）</td></tr>`;
   document.getElementById('lsTable').innerHTML=h+`</tbody>`;
 }
 
