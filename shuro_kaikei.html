@@ -566,8 +566,11 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <p class="hint">CSVの列は「日付, 摘要, 収入, 支出, 勘定科目1, 勘定科目2, 入金日」。今のExcelからそのまま貼り付けられます。</p>
       <div class="row" style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)">
         <button class="btn sub" style="border-color:var(--orange);color:var(--orange)" onclick="reimportSeed()">🔁 Excel分だけ消して取り込み直す</button>
+        <button class="btn warn" onclick="clearAll()">🗑 明細をすべて消す</button>
       </div>
-      <p class="hint">試験運用中の一時的なボタンです。Excelから取り込んだ分だけを消してもう一度取り込み直します（手入力したデータは残ります）。運用が固まったら削除します。</p>
+      <p class="hint">どちらも試験運用中の一時的なボタンです。運用が固まったら削除します。<br>
+        <b>🔁</b> はExcelから取り込んだ分だけを消して入れ直します（手入力したデータは残ります）。<br>
+        <b>🗑</b> は<b>この事業所の明細をすべて</b>消します（作業・費目の設定は残ります）。もとに戻せないので、先に「💾 バックアップ（JSON）」を取っておくと安心です。</p>
     </div>
   </section>
 </main>
@@ -2155,6 +2158,26 @@ async function importSeed(){
   if(!confirm(`Excelの ${list.length} 件を取り込みます。よろしいですか？`)) return;
   await putEntries(list);
   toast(list.length+'件 取り込みました'); renderAll();
+}
+
+/** 試験運用中の一時的な機能：この事業所の明細をすべて消す（作業・費目の設定は残す） */
+async function clearAll(){
+  const n = DB.entries.length;
+  if(!n){ toast('消す明細がありません'); return; }
+  if(!confirm(`この事業所の明細 ${n} 件をすべて消します。もとに戻せません。よろしいですか？`)) return;
+  if(!confirm('本当に消してよろしいですか？')) return;
+  const ids = DB.entries.map(e=>e.id);
+  DB.entries = []; saveLocal();
+  if(cloudOn()){
+    try{
+      for(let i=0;i<ids.length;i+=400){
+        const b = window._fbDb.batch();
+        ids.slice(i,i+400).forEach(id=>b.delete(entCol().doc(id)));
+        await b.commit();
+      }
+    }catch(e){ console.error(e); setSync('⚠ 同期エラー'); }
+  }
+  renderAll(); toast(`${n}件すべて消しました`);
 }
 
 /** 試験運用中の一時的な機能：取り込み済みのExcel分だけ消して最新の内容で入れ直す */
