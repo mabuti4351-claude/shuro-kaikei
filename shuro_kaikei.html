@@ -658,6 +658,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
 const LS_KEY = 'shuro_kaikei_db';
 const LS_FB  = 'shuro_kaikei_fb';
+const LS_OWNER = 'shuro_kaikei_owner';   // 手元のデータがどの事業所のものかを覚えておく
 
 const DEFAULT_JOBS = [
   {id:'bento',     name:'弁当',      group:'弁当',    active:true},
@@ -859,8 +860,15 @@ async function initFirebase(){
         _wsEmail = null;
         if(_unsubEnt){_unsubEnt();_unsubEnt=null;}
         if(_unsubWs){_unsubWs();_unsubWs=null;}
+        // 前の事業所のデータを手元に残さない。
+        // 残したままだと、次に別の事業所が初めてログインしたときに
+        // startCloudSync() がそれを「その事業所のデータ」として送ってしまう。
+        DB = { entries: [], jobs: [], costs: [], presets: [], settings: {} };
+        localStorage.removeItem(LS_KEY);
+        loadLocal();
         document.getElementById('wsBadge').textContent = '';
         document.getElementById('logoutBtn').style.display = 'none';
+        renderAll();
         showAuth();
       }
       updateModeBanner();
@@ -873,13 +881,24 @@ async function initFirebase(){
 
 async function startCloudSync(){
   setSync('🔄 読み込み中…');
-  // 初回：クラウドが空ならローカルの内容を送る
+  // 初回：クラウドが空ならローカルの内容を送る。
+  // ただし手元のデータが「別の事業所のもの」なら送ってはいけないので、
+  // 直前に使っていたアカウントと一致するときだけ引き継ぐ。
   try{
     const wsSnap = await wsDoc().get();
     if(!wsSnap.exists){
-      await wsDoc().set({jobs:DB.jobs, costs:DB.costs, presets:DB.presets, settings:DB.settings, createdAt:new Date().toISOString()});
-      if(DB.entries.length){ await putEntries(DB.entries); }
+      const lastOwner = localStorage.getItem(LS_OWNER);
+      const sameOwner = !lastOwner || lastOwner === _wsEmail;
+      await wsDoc().set({
+        jobs: sameOwner ? DB.jobs : JSON.parse(JSON.stringify(DEFAULT_JOBS)),
+        costs: sameOwner ? DB.costs : JSON.parse(JSON.stringify(DEFAULT_COSTS)),
+        presets: sameOwner ? DB.presets : [],
+        settings: sameOwner ? DB.settings : defaultSettings(),
+        createdAt: new Date().toISOString()
+      });
+      if(sameOwner && DB.entries.length){ await putEntries(DB.entries); }
     }
+    localStorage.setItem(LS_OWNER, _wsEmail);
   }catch(e){ console.error(e); }
 
   if(_unsubWs) _unsubWs();
