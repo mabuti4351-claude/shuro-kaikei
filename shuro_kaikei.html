@@ -556,7 +556,12 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
     <div class="card">
       <h2>📥 データの取り込み・書き出し</h2>
-      <div class="row">
+      <div class="row" style="margin-bottom:12px">
+        <button class="btn" style="font-size:17px;padding:14px 22px" onclick="document.getElementById('xlsFile').click()">📗 Excelファイルを読み込む</button>
+        <input type="file" id="xlsFile" accept=".xlsm,.xlsx,.xls" style="display:none" onchange="importExcelFile(event)">
+      </div>
+      <p class="hint">いつもの就労会計のExcel（.xlsm）をそのまま選ぶだけです。「出納帳（ここに入力）」シートを読み取ります。訂正したExcelができるたび、このボタンから読み込み直せます。</p>
+      <div class="row" style="margin-top:14px">
         <button class="btn sub" onclick="importSeed()">📚 これまでのExcel（2025年度 139件）を取り込む</button>
         <button class="btn sub" onclick="document.getElementById('csvFile').click()">📥 CSVを取り込む</button>
         <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsvFile(event)">
@@ -574,6 +579,22 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     </div>
   </section>
 </main>
+
+<!-- Excel読み込みの確認モーダル -->
+<div class="modal" id="xlsModal">
+  <div class="box" style="max-width:600px">
+    <h3>📗 Excelを読み込みました</h3>
+    <div id="xlsSummary"></div>
+    <div class="row" style="margin-top:20px">
+      <button class="btn" onclick="applyExcelImport('replace')">🔄 入れ替える</button>
+      <button class="btn sub" onclick="applyExcelImport('add')">➕ 追加する</button>
+      <button class="btn sub" onclick="closeModal('xlsModal')">やめる</button>
+    </div>
+    <p class="hint" style="margin-top:12px">
+      <b>入れ替える</b>…今の明細をすべて消して、Excelの内容にします。訂正版を読み込むときはこちら。<br>
+      <b>追加する</b>…今の明細は残したまま、Excelの分を足します（まったく同じ内容の行は飛ばします）。</p>
+  </div>
+</div>
 
 <!-- 新しい作業の追加モーダル -->
 <div class="modal" id="newJobModal">
@@ -2158,6 +2179,198 @@ async function importSeed(){
   if(!confirm(`Excelの ${list.length} 件を取り込みます。よろしいですか？`)) return;
   await putEntries(list);
   toast(list.length+'件 取り込みました'); renderAll();
+}
+
+/* ============ Excel（.xlsm）の読み込み ============ */
+
+/** Excelの勘定科目1から、表4のどの科目に当たるかを推定する */
+const COST_STD_GUESS = {
+  '食材費':{grp:'材料費', std:'当期材料仕入高'},
+  '材料費':{grp:'材料費', std:'当期材料仕入高'},
+  '仕入':{grp:'商品仕入', std:'当期就労支援事業仕入高'},
+  '外注加工費':{grp:'外注加工費', std:'外注加工費'},
+  '水道光熱費':{grp:'経費', std:'水道光熱費'},
+  '燃料費':{grp:'経費', std:'燃料費'},
+  '消耗品費':{grp:'経費', std:'消耗品費'},
+  '修繕費':{grp:'経費', std:'修繕費'},
+  '通信運搬費':{grp:'経費', std:'通信運搬費'},
+  '賃借料':{grp:'経費', std:'賃借料'},
+  '租税公課':{grp:'経費', std:'租税公課'},
+  '減価償却費':{grp:'経費', std:'減価償却費'},
+  '旅費交通費':{grp:'経費', std:'旅費交通費'},
+  '福利厚生費':{grp:'経費', std:'福利厚生費'},
+  '会議費':{grp:'経費', std:'会議費'},
+  '損害保険料':{grp:'経費', std:'損害保険料'},
+  '印刷製本費':{grp:'経費', std:'印刷製本費'},
+  '器具什器費':{grp:'経費', std:'器具什器費'},
+  '受注活動費':{grp:'経費', std:'受注活動費'},
+  '図書・教育費':{grp:'経費', std:'図書・教育費'}
+};
+
+/** Excelの勘定科目に合う費目を探す。無ければ作る（表4の科目も自動で割り当てる） */
+function resolveCostId(k1, k2, created){
+  const name = (k2||'').trim() || (k1||'').trim() || 'その他';
+  const found = DB.costs.find(x=>x.name===name);
+  if(found) return found.id;
+  const g = COST_STD_GUESS[(k1||'').trim()] || COST_STD_GUESS[name] || {grp:'経費', std:'雑費'};
+  const c = {id:genId(), name, active:true, grp:g.grp, std:g.std};
+  DB.costs.push(c); created.push(name);
+  return c.id;
+}
+/** Excelの勘定科目に合う作業を探す。無ければ作る */
+function resolveJobId(k1, k2, created){
+  const id = mapJob(k1, k2);
+  if(id) return id;
+  const name = (k2||'').trim() || (k1||'').trim();
+  if(!name) return null;
+  const j = {id:genId(), name, group:(k1||'その他').trim(), active:true};
+  DB.jobs.push(j); created.push(name);
+  return j.id;
+}
+
+/** Excelの日付（シリアル値・日付型どちらでも）をYYYY-MM-DDにする */
+function excelToISO(v){
+  if(v instanceof Date && !isNaN(v)){
+    return v.getFullYear()+'-'+String(v.getMonth()+1).padStart(2,'0')+'-'+String(v.getDate()).padStart(2,'0');
+  }
+  const n = Number(v);
+  if(!isFinite(n) || n<=0) return '';
+  const d = new Date(Date.UTC(1899,11,30) + Math.round(n)*86400000);
+  return isNaN(d) ? '' : d.toISOString().slice(0,10);
+}
+
+let _pendingImport = null;
+
+async function importExcelFile(ev){
+  const f = ev.target.files[0]; if(!f) return;
+  ev.target.value = '';
+  toast('Excelを読み込んでいます…');
+  try{
+    if(!window.XLSX) await loadScript('https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js');
+  }catch(e){
+    alert('Excelを読み取る部品を取得できませんでした。インターネットに繋がっているか確認してください。'); return;
+  }
+  let aoa;
+  try{
+    const wb = XLSX.read(await f.arrayBuffer(), {type:'array', cellDates:true});
+    const sheetName = wb.SheetNames.find(n=>n.includes('出納帳')) || wb.SheetNames[0];
+    aoa = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header:1, defval:''});
+  }catch(e){
+    console.error(e); alert('Excelファイルを読み取れませんでした。ファイルが壊れていないか確認してください。'); return;
+  }
+
+  // 見出し行（「摘要」を含む行）を探し、その次の行からデータとして読む
+  const headIdx = aoa.findIndex(r => r.some(c => String(c).includes('摘要')));
+  if(headIdx < 0){ alert('「摘要」の見出しが見つかりません。出納帳のシートか確認してください。'); return; }
+  const head = aoa[headIdx].map(c=>String(c).trim());
+  const col = (...names)=> head.findIndex(h => names.some(n=>h.includes(n)));
+  const iY=col('年'), iM=col('月'), iD=col('日'), iDesc=col('摘要'),
+        iIn=col('収入'), iOut=col('支出'),
+        iK1=col('勘定科目１','勘定科目1'), iK2=col('勘定科目２','勘定科目2'),
+        iP=head.findIndex(h=>h.includes('入金日'));
+
+  const list=[], createdJobs=[], createdCosts=[], skipped=[];
+  const jobsBackup = JSON.parse(JSON.stringify(DB.jobs));
+  const costsBackup = JSON.parse(JSON.stringify(DB.costs));
+
+  for(let r=headIdx+1; r<aoa.length; r++){
+    const row = aoa[r];
+    if(!row || !row.length) continue;
+    const desc = String(row[iDesc]??'').replace(/　/g,' ').trim();
+    const inAmt = Math.round(Number(String(row[iIn]??'').replace(/[,¥\s]/g,''))) || 0;
+    const outAmt = Math.round(Number(String(row[iOut]??'').replace(/[,¥\s]/g,''))) || 0;
+    const k1 = String(row[iK1]??'').trim(), k2 = String(row[iK2]??'').trim();
+    if(!inAmt && !outAmt) continue;
+    if(desc.includes('繰越')) continue;
+
+    // 日付は 年/月/日 の3列から組み立てる。
+    // 「2月30日」のように存在しない日は、うっかり通すと後の集計が狂うので弾く。
+    const y=Number(row[iY]), m=Number(row[iM]), d=Number(row[iD]);
+    let date='', dateNg='';
+    if(!isFinite(y)||!isFinite(m)||!isFinite(d)||!row[iY]||!row[iM]||!row[iD]){
+      dateNg='日付が空です';
+    }else{
+      const dt = new Date(y, m-1, d);
+      if(dt.getFullYear()===y && dt.getMonth()===m-1 && dt.getDate()===d){
+        date = y+'-'+String(m).padStart(2,'0')+'-'+String(d).padStart(2,'0');
+      }else{
+        dateNg = `${y}年${m}月${d}日は存在しません`;
+      }
+    }
+    if(!date){ skipped.push(`${r+1}行目　${desc||'(摘要なし)'}　${num(inAmt||outAmt)}円　… ${dateNg}`); continue; }
+
+    const p = iP>=0 ? excelToISO(row[iP]) : '';
+
+    if(k1==='利用者工賃' || desc==='利用者工賃'){
+      list.push({id:genId(), d:date, t:'wage', a:outAmt||inAmt, j:'', c:'', m:desc, p:'', ts:new Date().toISOString()});
+    }else if(inAmt){
+      const j = resolveJobId(k1,k2,createdJobs);
+      if(!j){ skipped.push(`${r+1}行目　${desc}　… 作業が分からない`); continue; }
+      list.push({id:genId(), d:date, t:'in', a:inAmt, j, c:'', m:desc, p, ts:new Date().toISOString()});
+    }else{
+      const c = resolveCostId(k1,k2,createdCosts);
+      list.push({id:genId(), d:date, t:'out', a:outAmt, j:COMMON_JOB.id, c, m:desc, p:'', ts:new Date().toISOString()});
+    }
+  }
+
+  if(!list.length){
+    DB.jobs=jobsBackup; DB.costs=costsBackup;
+    alert('読み取れる明細がありませんでした。'); return;
+  }
+
+  _pendingImport = {list, createdJobs, createdCosts, jobsBackup, costsBackup};
+
+  const inS=list.filter(e=>e.t==='in').reduce((s,e)=>s+e.a,0);
+  const outS=list.filter(e=>e.t==='out').reduce((s,e)=>s+e.a,0);
+  const wS=list.filter(e=>e.t==='wage').reduce((s,e)=>s+e.a,0);
+  const months=[...new Set(list.map(e=>e.d.slice(0,7)))].sort();
+  document.getElementById('xlsSummary').innerHTML = `
+    <table style="margin-bottom:12px">
+      <tr><td style="text-align:left">読み取った明細</td><td class="num"><b>${list.length}件</b></td></tr>
+      <tr><td style="text-align:left">期間</td><td class="num">${monthLabelFull(months[0])}〜${monthLabelFull(months[months.length-1])}</td></tr>
+      <tr><td style="text-align:left">売上</td><td class="num">${yen(inS)}</td></tr>
+      <tr><td style="text-align:left">経費</td><td class="num">${yen(outS)}</td></tr>
+      <tr><td style="text-align:left">利用者工賃</td><td class="num">${yen(wS)}</td></tr>
+      <tr class="total"><td style="text-align:left">差引</td><td class="num">${yen(inS-outS-wS)}</td></tr>
+    </table>
+    ${createdJobs.length?`<div class="banner info">新しい作業を追加します：<b>${createdJobs.map(esc).join('・')}</b></div>`:''}
+    ${createdCosts.length?`<div class="banner info">新しい費目を追加します：<b>${createdCosts.map(esc).join('・')}</b></div>`:''}
+    ${skipped.length?`<div class="banner warn"><b>${skipped.length}件は取り込めません</b><div style="margin-top:6px;font-size:12px;max-height:150px;overflow:auto">${skipped.map(esc).join('<br>')}</div>
+      <div style="margin-top:6px">Excel側を直してから、もう一度読み込んでください。</div></div>`:''}
+    <p class="hint">経費は作業が分からないため<b>「共通（あとで分ける）」</b>に入ります。収支タブで売上の比率に応じて自動で振り分けられます。</p>`;
+  document.getElementById('xlsModal').classList.add('open');
+}
+
+async function applyExcelImport(mode){
+  if(!_pendingImport) return;
+  const {list} = _pendingImport;
+  closeModal('xlsModal');
+  if(mode==='replace'){
+    if(!confirm(`今の明細（${DB.entries.length}件）をすべて消して、Excelの${list.length}件に入れ替えます。よろしいですか？`)){ return; }
+    const ids = DB.entries.map(e=>e.id);
+    DB.entries = [];
+    if(cloudOn()){
+      try{
+        for(let i=0;i<ids.length;i+=400){
+          const b = window._fbDb.batch();
+          ids.slice(i,i+400).forEach(id=>b.delete(entCol().doc(id)));
+          await b.commit();
+        }
+      }catch(e){ console.error(e); setSync('⚠ 同期エラー'); }
+    }
+    await saveMaster();
+    await putEntries(list);
+    toast(`Excelの${list.length}件に入れ替えました`);
+  }else{
+    const exist = new Set(DB.entries.map(e=>e.d+'|'+e.t+'|'+e.a+'|'+(e.m||'')));
+    const add = list.filter(e=>!exist.has(e.d+'|'+e.t+'|'+e.a+'|'+(e.m||'')));
+    if(!add.length){ toast('追加する明細はありませんでした'); _pendingImport=null; return; }
+    await saveMaster();
+    await putEntries(add);
+    toast(`${add.length}件を追加しました`);
+  }
+  _pendingImport = null;
+  renderAll();
 }
 
 /** 試験運用中の一時的な機能：この事業所の明細をすべて消す（作業・費目の設定は残す） */
