@@ -474,11 +474,18 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <div class="grow" style="max-width:210px"><label class="lbl">期末 製品（商品）棚卸高</label><input type="number" id="ksCloseProd" onchange="saveFyData()"></div>
       </div>
       <h3>積立金（工賃変動積立金・設備等整備積立金）</h3>
+      <p class="hint">前期繰越額を入れると、別紙3・別紙4の当期末残高まで自動で計算します。</p>
       <div class="row">
+        <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 前期繰越</label><input type="number" id="ksKoichinOpen" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 繰入</label><input type="number" id="ksKoichinIn" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 取崩</label><input type="number" id="ksKoichinOut" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 当期末残高</label><input type="number" id="ksKoichinEnd" disabled style="background:#f0f2f5"></div>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 前期繰越</label><input type="number" id="ksSetsubiOpen" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 繰入</label><input type="number" id="ksSetsubiIn" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 取崩</label><input type="number" id="ksSetsubiOut" onchange="saveFyData()"></div>
+        <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 当期末残高</label><input type="number" id="ksSetsubiEnd" disabled style="background:#f0f2f5"></div>
       </div>
     </div>
 
@@ -805,7 +812,8 @@ function fyData(fy){
   DB.settings.fyData = DB.settings.fyData || {};
   if(!DB.settings.fyData[fy]) DB.settings.fyData[fy] = {
     openMat:0, closeMat:0, openWip:0, closeWip:0, openProd:0, closeProd:0,
-    koichinIn:0, koichinOut:0, setsubiIn:0, setsubiOut:0
+    koichinIn:0, koichinOut:0, setsubiIn:0, setsubiOut:0,
+    koichinOpen:0, setsubiOpen:0   // 積立金の前期繰越額
   };
   return DB.settings.fyData[fy];
 }
@@ -1848,8 +1856,8 @@ function saveFyData(){
   d.openMat=g('ksOpenMat'); d.closeMat=g('ksCloseMat');
   d.openWip=g('ksOpenWip'); d.closeWip=g('ksCloseWip');
   d.openProd=g('ksOpenProd'); d.closeProd=g('ksCloseProd');
-  d.koichinIn=g('ksKoichinIn'); d.koichinOut=g('ksKoichinOut');
-  d.setsubiIn=g('ksSetsubiIn'); d.setsubiOut=g('ksSetsubiOut');
+  d.koichinIn=g('ksKoichinIn'); d.koichinOut=g('ksKoichinOut'); d.koichinOpen=g('ksKoichinOpen');
+  d.setsubiIn=g('ksSetsubiIn'); d.setsubiOut=g('ksSetsubiOut'); d.setsubiOpen=g('ksSetsubiOpen');
   saveMaster(); renderKessan();
 }
 
@@ -1869,8 +1877,11 @@ function renderKessan(){
   st('ksOpenMat',d.openMat); st('ksCloseMat',d.closeMat);
   st('ksOpenWip',d.openWip); st('ksCloseWip',d.closeWip);
   st('ksOpenProd',d.openProd); st('ksCloseProd',d.closeProd);
-  st('ksKoichinIn',d.koichinIn); st('ksKoichinOut',d.koichinOut);
-  st('ksSetsubiIn',d.setsubiIn); st('ksSetsubiOut',d.setsubiOut);
+  st('ksKoichinIn',d.koichinIn); st('ksKoichinOut',d.koichinOut); st('ksKoichinOpen',d.koichinOpen);
+  st('ksSetsubiIn',d.setsubiIn); st('ksSetsubiOut',d.setsubiOut); st('ksSetsubiOpen',d.setsubiOpen);
+  // 当期末残高＝前期繰越＋当期積立−当期取崩
+  st('ksKoichinEnd', (d.koichinOpen||0)+(d.koichinIn||0)-(d.koichinOut||0));
+  st('ksSetsubiEnd', (d.setsubiOpen||0)+(d.setsubiIn||0)-(d.setsubiOut||0));
 
   const officeLine = (DB.settings.officeName||'').trim() ? DB.settings.officeName.trim()+'　' : '';
   document.getElementById('ksPeriod1').textContent = officeLine + periodLabel(fy);
@@ -2002,7 +2013,8 @@ function printKessan(){
    雛形 template/shuro_youshiki.xlsx の中身（XML）を直接書き換えるので、
    罫線・列幅・結合などの体裁はそのまま保たれる。 */
 const XLS_MAXJOBS = 12;                    // 雛形が持っている作業列の数（D〜O）
-const XLS_SHEET = { besshi1:'xl/worksheets/sheet1.xml', hyo1:'xl/worksheets/sheet2.xml', hyo4:'xl/worksheets/sheet3.xml' };
+const XLS_SHEET = { besshi1:'xl/worksheets/sheet1.xml', hyo1:'xl/worksheets/sheet2.xml', hyo4:'xl/worksheets/sheet3.xml',
+                    besshi3:'xl/worksheets/sheet4.xml', besshi4:'xl/worksheets/sheet5.xml' };
 
 function xmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 function colLetter(n){ let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-m-1)/26; } return s; }
@@ -2122,8 +2134,29 @@ async function exportKessanExcel(){
   b1(23, c.balance, prev.balance);          // サービス活動増減差額
   b1(40, c.balance, prev.balance);          // 経常増減差額
   b1(57, c.balance, prev.balance);          // 当期活動増減差額
-  b1(62, (d.koichinIn||0)+(d.setsubiIn||0), (dPrev.koichinIn||0)+(dPrev.setsubiIn||0)); // 積立金積立額
+  b1(61, (d.koichinOut||0)+(d.setsubiOut||0), (dPrev.koichinOut||0)+(dPrev.setsubiOut||0)); // 積立金取崩額
+  b1(62, (d.koichinIn||0)+(d.setsubiIn||0), (dPrev.koichinIn||0)+(dPrev.setsubiIn||0));     // 積立金積立額
   zip.file(XLS_SHEET.besshi1, sb);
+
+  // ---------- 別紙3・別紙4（積立金・積立資産の明細表） ----------
+  // 工賃変動と設備等整備の2区分。行は 前期繰越/当期積立/当期取崩/当期末残高 の順。
+  const ko = {open:d.koichinOpen||0, in:d.koichinIn||0, out:d.koichinOut||0};
+  const se = {open:d.setsubiOpen||0, in:d.setsubiIn||0, out:d.setsubiOut||0};
+  ko.end = ko.open + ko.in - ko.out;
+  se.end = se.open + se.in - se.out;
+  const tot = {open:ko.open+se.open, in:ko.in+se.in, out:ko.out+se.out, end:ko.end+se.end};
+  for(const key of ['besshi3','besshi4']){
+    let s = await zip.file(XLS_SHEET[key]).async('string');
+    s = xlsSetCell(s,'A3', (office?office+'　':'')+period, true);
+    // 6=工賃変動, 10=設備等整備, 14=空欄, 18=合計 の各ブロック先頭行
+    const put4 = (row, v)=>{
+      ['open','in','out','end'].forEach((k,i)=>{
+        ['C','D','E'].forEach(col=>{ s = xlsSetCell(s, col+(row+i), Math.round(v[k])); });
+      });
+    };
+    put4(6, ko); put4(10, se); put4(18, tot);
+    zip.file(XLS_SHEET[key], s);
+  }
 
   const blob = await zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
   const a = document.createElement('a');
