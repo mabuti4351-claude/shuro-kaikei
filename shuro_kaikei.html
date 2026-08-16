@@ -608,6 +608,25 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
   </section>
 </main>
 
+<!-- 業者ごとの按分先を選ぶモーダル -->
+<div class="modal" id="presetJobsModal">
+  <div class="box" style="max-width:520px">
+    <h3>⚖ <span id="pjTitle"></span> の按分先</h3>
+    <p class="hint">この業者からの仕入を、<b>どの作業に分けるか</b>を選びます。<br>
+      例：浦添冷凍は魚と肉なので<b>弁当だけ</b>、というように業者ごとに指定できます。<br>
+      選んだ作業の<b>売上の比率</b>で配分されます。1つだけ選んだ場合は、その作業の経費になります。</p>
+    <input type="hidden" id="pjId">
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn sub" onclick="pjSetAll(false)">指定をやめる（費目の設定に従う）</button>
+    </div>
+    <div id="pjJobs" class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
+    <div class="row" style="margin-top:18px">
+      <button class="btn" onclick="savePresetJobs()">保存</button>
+      <button class="btn sub" onclick="closeModal('presetJobsModal')">やめる</button>
+    </div>
+  </div>
+</div>
+
 <!-- 費目ごとの按分先を選ぶモーダル -->
 <div class="modal" id="costJobsModal">
   <div class="box" style="max-width:520px">
@@ -1069,11 +1088,29 @@ function costTargets(costId){
   const t = c.jobs.filter(id=>all.includes(id));
   return t.length ? t : all;
 }
+/**
+ * その明細の共通費をどの作業に分けるか。
+ * 明細に指定（業者ごとの按分先）があればそれを優先し、無ければ費目の設定に従う。
+ */
+function entryTargets(e){
+  const all = DB.jobs.map(j=>j.id);
+  if(e.jt && e.jt.length){
+    const t = e.jt.filter(id=>all.includes(id));
+    if(t.length) return t.slice().sort();
+  }
+  return costTargets(e.c).slice().sort();
+}
 /** 按分先の表示名（設定画面用） */
 function costTargetLabel(c){
   if(!c.jobs || !c.jobs.length) return 'すべての作業';
   const names = c.jobs.map(id=>{ const j=DB.jobs.find(x=>x.id===id); return j?j.name:null; }).filter(Boolean);
   return names.length ? names.join('・') : 'すべての作業';
+}
+/** 業者（よく使う経費）の按分先の表示名 */
+function presetTargetLabel(p){
+  if(!p.jobs || !p.jobs.length) return 'この費目の設定どおり';
+  const names = p.jobs.map(id=>{ const j=DB.jobs.find(x=>x.id===id); return j?j.name:null; }).filter(Boolean);
+  return names.length ? names.join('・') : 'この費目の設定どおり';
 }
 
 function calc(months){
@@ -1094,15 +1131,18 @@ function calc(months){
     }else if(e.t==='out'){
       cost += e.a; costMonth[m]=(costMonth[m]||0)+e.a;
       if(e.j===COMMON_JOB.id || !e.j){
-        const k = e.c || '__none';
-        commonByCost[k] = (commonByCost[k]||0) + e.a;
+        // 明細ごとの按分先指定（業者単位）があればそれを優先し、無ければ費目の設定を使う
+        const t = entryTargets(e);
+        const k = (e.c||'__none') + '|' + t.join(',');
+        if(!commonByCost[k]) commonByCost[k] = {amt:0, targets:t};
+        commonByCost[k].amt += e.a;
       }
       else direct[e.j]=(direct[e.j]||0)+e.a;
     }else if(e.t==='wage'){
       wage += e.a; costMonth[m]=(costMonth[m]||0)+e.a;
     }
   });
-  const common = Object.values(commonByCost).reduce((s,v)=>s+v,0);
+  const common = Object.values(commonByCost).reduce((s,v)=>s+v.amt,0);
 
   // 共通費の按分。費目ごとに「どの作業に分けるか」が違うので、費目単位で配分する。
   const alloc = DB.settings.alloc || 'sales';
@@ -1113,8 +1153,7 @@ function calc(months){
     unallocated = common;
   }else{
     const ratio = DB.settings.allocRatio||{};
-    Object.entries(commonByCost).forEach(([cid, amt])=>{
-      const targets = costTargets(cid);
+    Object.values(commonByCost).forEach(({amt, targets})=>{
       let base=0; const w={};
       targets.forEach(id=>{
         w[id] = (alloc==='manual') ? (+ratio[id]||0) : (sales[id]||0);
@@ -1213,6 +1252,8 @@ function kpiHtml(c){
 
 /* ============ 入力（1件ずつ） ============ */
 let eType='in', eJob=null, eCost=null, editingId=null;
+// 「共通」だがこの仕入先は特定の作業にしか関係しない、というときの按分先
+let eJobTargets = [];
 
 function startQuick(t){ showTab('entry'); switchEntryMode('single'); setEType(t); resetSingle(false); }
 
@@ -1255,6 +1296,8 @@ function renderPresetTiles(){
 function applyPreset(id){
   const p = DB.presets.find(x=>x.id===id); if(!p) return;
   eJob = p.j; eCost = p.c;
+  // 共通扱いの業者に按分先の指定があれば、その明細だけに引き継ぐ
+  eJobTargets = (p.j===COMMON_JOB.id && p.jobs && p.jobs.length) ? p.jobs.slice() : [];
   document.getElementById('eMemo').value = p.name;
   renderJobTiles(); renderCostTiles(); updateSaveHint();
   const amt = document.getElementById('eAmount');
@@ -1269,7 +1312,11 @@ function renderJobTiles(){
   ).join('') +
   `<button class="tile addtile" onclick="openNewJob()">＋ 新しい作業<span class="g">ここから追加できます</span></button>`;
 }
-function pickJob(id){ eJob = (eJob===id?null:id); renderJobTiles(); renderMemoChips(); updateSaveHint(); }
+function pickJob(id){
+  eJob = (eJob===id?null:id);
+  eJobTargets = [];   // 手で作業を選び直したら、業者ごとの按分先指定は解除する
+  renderJobTiles(); renderMemoChips(); updateSaveHint();
+}
 
 /** 入力画面から作業をその場で追加する */
 function openNewJob(){
@@ -1313,7 +1360,7 @@ function renderMemoChips(){
 
 function resetSingle(keepType){
   if(!keepType){ /* eType はそのまま */ }
-  eJob=null; eCost=null; editingId=null;
+  eJob=null; eCost=null; editingId=null; eJobTargets=[];
   document.getElementById('eAmount').value='';
   document.getElementById('eMemo').value='';
   document.getElementById('eDeposit').value='';
@@ -1384,6 +1431,8 @@ async function saveSingle(){
     p: eType==='in' ? (document.getElementById('eDeposit').value||'') : '',
     ts: new Date().toISOString()
   };
+  // 共通扱いで、この明細だけの按分先が指定されているなら覚えておく
+  if(eType==='out' && eJob===COMMON_JOB.id && eJobTargets.length) e.jt = eJobTargets.slice();
   await putEntry(e);
   toast('保存しました（' + yen(a) + '）');
   showLastSaved(e);
@@ -1683,29 +1732,34 @@ function calcStd(fy){
   // 共通費は費目ごとに按分先が違うので、費目IDごとに分けて持つ
   // acc[grp][std] = {total, direct:{jobId:額}, commonByCost:{costId:額}}
   const acc = {};
-  const put = (grp,std,amt,jobId,costId)=>{
+  const put = (grp,std,amt,jobId,targets)=>{
     acc[grp] = acc[grp] || {};
     acc[grp][std] = acc[grp][std] || {total:0, direct:{}, commonByCost:{}};
     const a = acc[grp][std];
     a.total += amt;
     if(jobId && jobId!==COMMON_JOB.id && sales[jobId]!==undefined) a.direct[jobId]=(a.direct[jobId]||0)+amt;
-    else { const k = costId || '__none'; a.commonByCost[k] = (a.commonByCost[k]||0) + amt; }
+    else {
+      const t = targets || jid;
+      const k = t.join(',');
+      if(!a.commonByCost[k]) a.commonByCost[k] = {amt:0, targets:t};
+      a.commonByCost[k].amt += amt;
+    }
   };
   rows.forEach(e=>{
-    if(e.t==='out'){ const s=stdOf(e.c); put(s.grp, s.std, e.a, e.j, e.c); }
-    else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null, null); } // 工賃は全作業へ売上比で按分
+    if(e.t==='out'){ const s=stdOf(e.c); put(s.grp, s.std, e.a, e.j, entryTargets(e)); }
+    else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null, jid); } // 工賃は全作業へ売上比で按分
   });
 
-  /** 科目の作業別内訳（共通分は費目ごとの按分先へ売上比で配る） */
+  /** 科目の作業別内訳（共通分は指定された按分先へ売上比で配る） */
   const byJob = (grp,std)=>{
     const a = acc[grp] && acc[grp][std];
     const out = {}; jid.forEach(i=>out[i]=0);
     if(!a) return out;
     jid.forEach(i=>{ out[i] = (a.direct[i]||0); });
-    Object.entries(a.commonByCost).forEach(([cid, amt])=>{
-      const targets = costTargets(cid).filter(id=>sales[id]!==undefined);
-      let base=0; targets.forEach(id=> base += (sales[id]||0));
-      if(base>0) targets.forEach(id=>{ out[id] += amt * (sales[id]||0) / base; });
+    Object.values(a.commonByCost).forEach(({amt, targets})=>{
+      const t = targets.filter(id=>sales[id]!==undefined);
+      let base=0; t.forEach(id=> base += (sales[id]||0));
+      if(base>0) t.forEach(id=>{ out[id] += amt * (sales[id]||0) / base; });
       // 按分先に売上がなければ列には出さない（合計欄にだけ残る）
     });
     return out;
@@ -2177,14 +2231,20 @@ function renderSettings(){
   // よく使う経費（業者）
   const jobOpts = j => allJobs().map(x=>`<option value="${x.id}" ${x.id===j?'selected':''}>${esc(x.name)}</option>`).join('');
   const costOpts = c => DB.costs.map(x=>`<option value="${x.id}" ${x.id===c?'selected':''}>${esc(x.name)}</option>`).join('');
-  let pt=`<thead><tr><th style="text-align:left">業者名</th><th>作業</th><th>費目</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  let pt=`<thead><tr><th style="text-align:left">業者名</th><th>作業</th><th style="text-align:left">共通のときの按分先</th><th>費目</th><th class="noprint">操作</th></tr></thead><tbody>`;
   if(!DB.presets.length){
-    pt+=`<tr><td colspan="4" style="text-align:center;color:var(--sub);padding:20px">まだ登録がありません。下の欄から追加してください。</td></tr>`;
+    pt+=`<tr><td colspan="5" style="text-align:center;color:var(--sub);padding:20px">まだ登録がありません。下の欄から追加してください。</td></tr>`;
   }
   DB.presets.forEach(p=>{
+    const isCommon = p.j===COMMON_JOB.id;
+    const label = (p.jobs && p.jobs.length) ? esc(presetTargetLabel(p)) : 'この費目の設定どおり';
     pt+=`<tr>
       <td style="text-align:left"><input type="text" value="${esc(p.name)}" onchange="updPreset('${p.id}','name',this.value)" style="padding:6px"></td>
       <td><select onchange="updPreset('${p.id}','j',this.value)" style="padding:6px">${jobOpts(p.j)}</select></td>
+      <td style="text-align:left">${isCommon
+        ? `<button class="btn sub" style="padding:5px 10px;font-size:12px;text-align:left;max-width:100%"
+             onclick="openPresetJobs('${p.id}')" title="この業者の仕入を、どの作業に分けるかを決めます">${label} ✎</button>`
+        : `<span style="color:var(--sub);font-size:12px">作業を決めているので按分しません</span>`}</td>
       <td><select onchange="updPreset('${p.id}','c',this.value)" style="padding:6px">${costOpts(p.c)}</select></td>
       <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delPreset('${p.id}')">削除</button></td>
     </tr>`;
@@ -2230,6 +2290,29 @@ function addCost(){
   document.getElementById('newCostName').value='';
   saveMaster(); renderAll(); toast('追加しました');
 }
+/** 業者ごとの按分先を選ぶ画面を開く */
+function openPresetJobs(id){
+  const p = DB.presets.find(x=>x.id===id); if(!p) return;
+  document.getElementById('pjId').value = id;
+  document.getElementById('pjTitle').textContent = p.name;
+  const sel = new Set(p.jobs||[]);
+  document.getElementById('pjJobs').innerHTML = DB.jobs.map(j=>
+    `<label class="tile" style="cursor:pointer;display:block">
+       <input type="checkbox" class="pjChk" value="${j.id}" ${sel.has(j.id)?'checked':''} style="width:18px;height:18px;vertical-align:middle">
+       ${esc(j.name)}<span class="g">${esc(j.group)}</span></label>`).join('');
+  document.getElementById('presetJobsModal').classList.add('open');
+}
+function pjSetAll(v){ document.querySelectorAll('#pjJobs .pjChk').forEach(c=>c.checked=v); }
+function savePresetJobs(){
+  const id = document.getElementById('pjId').value;
+  const p = DB.presets.find(x=>x.id===id); if(!p) return;
+  const picked = [...document.querySelectorAll('#pjJobs .pjChk:checked')].map(x=>x.value);
+  // 何も選ばない／全部選ぶ＝指定なし（費目の設定に従う）
+  p.jobs = (picked.length === 0 || picked.length === DB.jobs.length) ? [] : picked;
+  saveMaster(); closeModal('presetJobsModal'); renderAll();
+  toast(`${p.name}の按分先を「${presetTargetLabel(p)}」にしました`);
+}
+
 /** 費目ごとの按分先を選ぶ画面を開く */
 function openCostJobs(id){
   const c = DB.costs.find(x=>x.id===id); if(!c) return;
