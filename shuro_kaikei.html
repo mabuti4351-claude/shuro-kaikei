@@ -447,6 +447,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
           <select id="ksFy" onchange="renderKessan()"></select>
         </div>
         <button class="btn sub" onclick="printKessan()">🖨 様式を印刷</button>
+        <button class="btn" onclick="exportKessanExcel()">📗 様式のExcelで書き出し</button>
         <button class="btn sub" onclick="exportKessanCsv()">📤 CSVで書き出し</button>
       </div>
       <p class="hint">印刷すると、表1・表4・別紙1を1枚ずつ、A4横向きで出します（この画面の入力欄や工賃チェックは印刷されません）。</p>
@@ -1995,6 +1996,142 @@ function printKessan(){
   window.addEventListener('afterprint', cleanup);
   window.print();
   setTimeout(cleanup, 1000);   // afterprintが来ない環境の保険
+}
+
+/* ===== 厚労省の様式（Excel）に数字を入れて書き出す =====
+   雛形 template/shuro_youshiki.xlsx の中身（XML）を直接書き換えるので、
+   罫線・列幅・結合などの体裁はそのまま保たれる。 */
+const XLS_MAXJOBS = 12;                    // 雛形が持っている作業列の数（D〜O）
+const XLS_SHEET = { besshi1:'xl/worksheets/sheet1.xml', hyo1:'xl/worksheets/sheet2.xml', hyo4:'xl/worksheets/sheet3.xml' };
+
+function xmlEsc(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+function colLetter(n){ let s=''; while(n>0){ const m=(n-1)%26; s=String.fromCharCode(65+m)+s; n=(n-m-1)/26; } return s; }
+
+/** 既存セルを値つきで置き換える。style(s属性)は雛形のものを引き継ぐ */
+function xlsSetCell(xml, ref, value, isText){
+  const re = new RegExp('<c r="'+ref+'"([^>]*?)(/>|>[\\s\\S]*?</c>)');
+  const m = xml.match(re);
+  if(!m) return xml;                                   // 無い場合は何もしない（雛形を壊さない）
+  const sAttr = (m[1].match(/\ss="\d+"/)||[''])[0];
+  if(value===null || value===undefined || value===''){
+    return xml.replace(re, '<c r="'+ref+'"'+sAttr+'/>');
+  }
+  const body = isText
+    ? ' t="inlineStr"><is><t xml:space="preserve">'+xmlEsc(value)+'</t></is></c>'
+    : '><v>'+value+'</v></c>';
+  return xml.replace(re, '<c r="'+ref+'"'+sAttr+body);
+}
+/** 使わない作業列を非表示にする */
+function xlsHideCols(xml, firstUnused){
+  if(firstUnused > XLS_MAXJOBS) return xml;
+  for(let i=firstUnused; i<XLS_MAXJOBS; i++){
+    const idx = 4+i;                                   // D列=4
+    xml = xml.replace(new RegExp('<col([^>]*?)min="'+idx+'"([^>]*?)max="'+idx+'"([^>]*?)/>'),
+                      (all,a,b,c)=> all.includes('hidden=') ? all : '<col'+a+'min="'+idx+'"'+b+'max="'+idx+'"'+c+' hidden="1"/>');
+  }
+  return xml;
+}
+
+async function exportKessanExcel(){
+  const fy = ksFyValue();
+  const c = calcStd(fy);
+  const prev = calcStd(fy-1);
+  const d = c.d, dPrev = fyData(fy-1);
+  try{
+    if(!window.JSZip) await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+  }catch(e){ alert('Excelを作る部品を取得できませんでした。インターネットに繋がっているか確認してください。'); return; }
+
+  let zip;
+  try{
+    const res = await fetch('template/shuro_youshiki.xlsx?v=1');
+    if(!res.ok) throw new Error('雛形が見つかりません ('+res.status+')');
+    zip = await JSZip.loadAsync(await res.arrayBuffer());
+  }catch(e){ console.error(e); alert('様式の雛形を読み込めませんでした：'+e.message); return; }
+
+  // 作業別の列（売上か費用がある作業だけ／設定で省略もできる）
+  const showJobs = DB.settings.stdJobBreakdown !== false;
+  const jobs = showJobs ? c.jobs.filter(j=>c.sales[j.id] || c.jigyohiJ[j.id]) : [];
+  const cols = jobs.slice(0, XLS_MAXJOBS);
+  if(showJobs && jobs.length > XLS_MAXJOBS){
+    if(!confirm(`作業が${jobs.length}件あり、様式に入るのは${XLS_MAXJOBS}件までです。\n上位${XLS_MAXJOBS}件だけ列に出し、残りは合計にのみ含めます。よろしいですか？`)) return;
+  }
+  const office = (DB.settings.officeName||'').trim();
+  const period = periodLabel(fy);
+  /** 合計＋作業別をまとめて書き込む */
+  const line = (xml,row,total,byJob)=>{
+    xml = xlsSetCell(xml,'C'+row, Math.round(total));
+    cols.forEach((j,i)=>{ xml = xlsSetCell(xml, colLetter(4+i)+row, byJob?Math.round(byJob[j.id]||0):null); });
+    return xml;
+  };
+
+  // ---------- 表1 ----------
+  let s1 = await zip.file(XLS_SHEET.hyo1).async('string');
+  s1 = xlsSetCell(s1,'A4', (office?office+'　':'')+period, true);
+  cols.forEach((j,i)=>{ s1 = xlsSetCell(s1, colLetter(4+i)+'7', j.name, true); });
+  for(let i=cols.length;i<XLS_MAXJOBS;i++) s1 = xlsSetCell(s1, colLetter(4+i)+'7', null);
+  s1 = line(s1, 8,  c.income, c.sales);
+  s1 = line(s1, 9,  c.income, c.sales);
+  s1 = line(s1, 11, d.openProd, null);
+  s1 = line(s1, 12, c.jigyohi, c.jigyohiJ);
+  s1 = line(s1, 13, c.shiire, c.shiireJ);
+  s1 = line(s1, 14, d.openProd + c.jigyohi + c.shiire, null);
+  s1 = line(s1, 15, d.closeProd, null);
+  s1 = line(s1, 16, c.genka, c.genkaJ);
+  s1 = line(s1, 17, 0, null);                       // 販管費（表4方式のため0）
+  s1 = line(s1, 18, c.genka, c.genkaJ);
+  s1 = line(s1, 19, c.balance, c.balanceJ);
+  s1 = xlsHideCols(s1, cols.length);
+  zip.file(XLS_SHEET.hyo1, s1);
+
+  // ---------- 表4 ----------
+  let s4 = await zip.file(XLS_SHEET.hyo4).async('string');
+  s4 = xlsSetCell(s4,'B2', (office?office+'　':'')+period, true);
+  cols.forEach((j,i)=>{ s4 = xlsSetCell(s4, colLetter(4+i)+'3', j.name, true); });
+  for(let i=cols.length;i<XLS_MAXJOBS;i++) s4 = xlsSetCell(s4, colLetter(4+i)+'3', null);
+  s4 = line(s4, 5,  d.openMat, null);
+  s4 = line(s4, 6,  c.matPurchase, c.matPurchaseJ);
+  s4 = line(s4, 7,  d.openMat + c.matPurchase, null);
+  s4 = line(s4, 8,  d.closeMat, null);
+  s4 = line(s4, 9,  c.currentMaterial, c.currentMaterialJ);
+  c.laborItems.forEach((x,i)=>{ s4 = line(s4, 11+i, x.total, x.job); });   // 11..16
+  s4 = line(s4, 17, c.currentLabor, c.currentLaborJ);
+  s4 = line(s4, 19, c.gaichuInner, null);
+  s4 = line(s4, 20, c.currentGaichu, c.gaichuJ);
+  c.keihiItems.forEach((x,i)=>{ s4 = line(s4, 22+i, x.total, x.job); });   // 22..41
+  s4 = line(s4, 42, c.currentKeihi, c.currentKeihiJ);
+  s4 = line(s4, 43, c.soHiyou, c.soHiyouJ);
+  s4 = line(s4, 44, d.openWip, null);
+  s4 = line(s4, 45, c.soHiyou + d.openWip, null);
+  s4 = line(s4, 46, d.closeWip, null);
+  s4 = line(s4, 47, c.jigyohi, c.jigyohiJ);
+  s4 = xlsHideCols(s4, cols.length);
+  zip.file(XLS_SHEET.hyo4, s4);
+
+  // ---------- 別紙1 ----------
+  let sb = await zip.file(XLS_SHEET.besshi1).async('string');
+  sb = xlsSetCell(sb,'A4', (office?office+'　':'')+period, true);
+  const b1 = (row, cur, pre)=>{
+    sb = xlsSetCell(sb,'D'+row, Math.round(cur));
+    sb = xlsSetCell(sb,'E'+row, Math.round(pre));
+    sb = xlsSetCell(sb,'F'+row, Math.round(cur-pre));
+  };
+  b1(7,  c.income, prev.income);            // 就労支援事業収益
+  b1(11, c.income, prev.income);            // サービス活動収益計
+  b1(15, c.genka,  prev.genka);             // 就労支援事業費用
+  b1(22, c.genka,  prev.genka);             // サービス活動費用計
+  b1(23, c.balance, prev.balance);          // サービス活動増減差額
+  b1(40, c.balance, prev.balance);          // 経常増減差額
+  b1(57, c.balance, prev.balance);          // 当期活動増減差額
+  b1(62, (d.koichinIn||0)+(d.setsubiIn||0), (dPrev.koichinIn||0)+(dPrev.setsubiIn||0)); // 積立金積立額
+  zip.file(XLS_SHEET.besshi1, sb);
+
+  const blob = await zip.generateAsync({type:'blob', mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `就労支援事業会計_${office?office+'_':''}${fy}年度.xlsx`;
+  a.click();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 1000);
+  toast('様式のExcelを書き出しました');
 }
 
 function exportKessanCsv(){
