@@ -168,7 +168,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 <body>
 
 <header>
-  <h1>💰 就労B型 生産活動 収支</h1>
+  <h1 id="appTitle">💰 就労B型 生産活動 収支</h1>
   <span class="badge" id="fyBadge"></span>
   <span class="spacer"></span>
   <span class="badge" id="wsBadge"></span>
@@ -504,6 +504,14 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
   <!-- ============ 設定 ============ -->
   <section id="view-settings" class="view">
     <div class="card">
+      <h2>🏢 事業所名</h2>
+      <p class="hint">ここで設定した名前が、画面上部と印刷する書類（決算書類・収支・入金票）に入ります。2つの事業所を別会計で使う場合は、それぞれのアカウントで違う名前を設定してください。</p>
+      <div class="row">
+        <input type="text" id="setOfficeName" placeholder="例) ジョブきらめき" style="max-width:320px" onchange="onOfficeNameChange()">
+      </div>
+    </div>
+
+    <div class="card">
       <h2>🔀 使い方のモード</h2>
       <div class="row">
         <select id="setMode" onchange="onModeChange()" style="max-width:380px">
@@ -789,7 +797,7 @@ let DB = { entries: [], jobs: [], costs: [], settings: {} };
 
 function defaultSettings(){
   return { fyStart:10, alloc:'sales', allocRatio:{},
-           mode:'simple', stdJobBreakdown:true, fyData:{} };
+           mode:'simple', stdJobBreakdown:true, fyData:{}, officeName:'' };
 }
 /** 年度ごとの決算整理データ（棚卸・積立金） */
 function fyData(fy){
@@ -1601,7 +1609,9 @@ function renderReport(){
   const c = calc(months);
 
   document.getElementById('repKpis').innerHTML = kpiHtml(c);
+  const officeLine = (DB.settings.officeName||'').trim();
   document.getElementById('repNote').innerHTML =
+    (officeLine ? `<b>${esc(officeLine)}</b><br>` : '') +
     `対象：${range==='fy'?fyLabel(fy):monthLabelFull(range)} ／ 明細 ${c.rows.length} 件`
     // 按分の余りは浮動小数点の誤差で 0.0000001 のような値になることがある。
     // そのまま真偽判定すると「¥0 は分けていません」と紛らわしい表示が出るため1円未満は無視する。
@@ -1861,9 +1871,10 @@ function renderKessan(){
   st('ksKoichinIn',d.koichinIn); st('ksKoichinOut',d.koichinOut);
   st('ksSetsubiIn',d.setsubiIn); st('ksSetsubiOut',d.setsubiOut);
 
-  document.getElementById('ksPeriod1').textContent = periodLabel(fy);
-  document.getElementById('ksPeriod4').textContent = periodLabel(fy);
-  document.getElementById('ksPeriodB1').textContent = periodLabel(fy);
+  const officeLine = (DB.settings.officeName||'').trim() ? DB.settings.officeName.trim()+'　' : '';
+  document.getElementById('ksPeriod1').textContent = officeLine + periodLabel(fy);
+  document.getElementById('ksPeriod4').textContent = officeLine + periodLabel(fy);
+  document.getElementById('ksPeriodB1').textContent = officeLine + periodLabel(fy);
 
   // ---- 工賃の適正額 ----
   const diff = c.wageDue - c.wagePaid;
@@ -2132,7 +2143,8 @@ function renderDeposit(){
     const byJob={};
     rows.forEach(e=>{ byJob[e.j]=(byJob[e.j]||0)+e.a; });
     const total=rows.reduce((s,e)=>s+e.a,0);
-    let h=`<h2 style="font-size:20px">入金票</h2>
+    const officeLine = (DB.settings.officeName||'').trim();
+    let h=`<h2 style="font-size:20px">${officeLine?esc(officeLine)+'　':''}入金票</h2>
       <div class="row" style="justify-content:space-between;margin-bottom:12px">
         <div>入金日：<b style="font-size:18px">${d.replace(/-/g,'/')}</b></div>
         <div>合計：<b style="font-size:22px">${yen(total)}</b></div>
@@ -2185,6 +2197,7 @@ async function applyBulkDeposit(){
 
 /* ============ 設定 ============ */
 function renderSettings(){
+  document.getElementById('setOfficeName').value = DB.settings.officeName || '';
   // 作業
   let h=`<thead><tr><th style="text-align:left">作業名</th><th>分類</th><th>使用</th><th class="noprint">操作</th></tr></thead><tbody>`;
   DB.jobs.forEach(j=>{
@@ -2384,6 +2397,17 @@ function onAllocChange(silent){
 }
 function setRatio(id,v){ DB.settings.allocRatio=DB.settings.allocRatio||{}; DB.settings.allocRatio[id]=+v||0; saveMaster(); renderAll(); }
 function onFyStartChange(){ DB.settings.fyStart=+document.getElementById('setFyStart').value; saveMaster(); renderAll(); }
+
+function onOfficeNameChange(){
+  DB.settings.officeName = document.getElementById('setOfficeName').value.trim();
+  saveMaster(); renderAll();
+  toast('事業所名を保存しました');
+}
+/** ヘッダーと印刷物に出す事業所名付きのタイトル */
+function appTitleText(){
+  const name = (DB.settings.officeName||'').trim();
+  return name ? `💰 ${name}　生産活動 収支` : '💰 就労B型 生産活動 収支';
+}
 
 /* ============ 取り込み・書き出し ============ */
 const IMPORT_MAP = {
@@ -2794,6 +2818,8 @@ function showTab(name){
 }
 
 function renderAll(){
+  document.getElementById('appTitle').textContent = appTitleText();
+  document.title = (DB.settings.officeName||'就労B型') + ' 生産活動 収支';
   document.getElementById('fyBadge').textContent = fyLabel(fyOf(todayISO()));
   const hm=document.getElementById('homeMonth');
   fillMonthSelectWith(hm, homeYm); hm.value=homeYm;
