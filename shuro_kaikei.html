@@ -557,7 +557,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
     <div class="card">
       <h2>⚖ 共通の経費の分け方</h2>
-      <p class="hint">食材費のように「どの作業のぶんか分けにくい」経費は、入力のときに作業を<b>「共通（あとで分ける）」</b>にしておけます。ここでその分け方を決めます。<br>
+      <p class="hint">食材費のように、いくつかの作業にまたがる経費は、入力のときに作業を<b>「共通」</b>にします。ここでその配分のしかたを決めます。<br>
         <b>費目ごとに按分先を変えられます</b>（例：食材費は弁当と焼菓子だけ、水道光熱費はすべての作業）。上の「費目」の表の<b>按分先</b>から設定してください。</p>
       <div class="row">
         <select id="setAlloc" onchange="onAllocChange()" style="max-width:340px">
@@ -631,7 +631,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 <div class="modal" id="costJobsModal">
   <div class="box" style="max-width:520px">
     <h3>⚖ <span id="cjTitle"></span> の按分先</h3>
-    <p class="hint">この費目を「共通（あとで分ける）」で入力したとき、<b>どの作業に分けるか</b>を選びます。<br>
+    <p class="hint">この費目を「共通」で入力したとき、<b>どの作業に配分するか</b>を選びます。<br>
       例：食材費は弁当と焼菓子だけ、水道光熱費はすべての作業、というように分けられます。<br>
       選んだ作業の<b>売上の比率</b>で自動的に配分されます。</p>
     <input type="hidden" id="cjId">
@@ -783,7 +783,7 @@ const DEFAULT_COSTS = [
   {id:'tesuryo',  name:'手数料',  active:true, grp:'経費',    std:'雑費'},
   {id:'other',    name:'その他',  active:true, grp:'経費',    std:'雑費'}
 ];
-const COMMON_JOB = {id:'__common', name:'共通（あとで分ける）', group:'共通', active:true};
+const COMMON_JOB = {id:'__common', name:'共通', group:'売上比で配分', active:true};
 
 let DB = { entries: [], jobs: [], costs: [], settings: {} };
 
@@ -1274,7 +1274,7 @@ function setEType(t){
   document.getElementById('depositWrap').style.display = (t==='in')?'':'none';
   document.getElementById('amountStepTitle').textContent = (t==='wage')?'② 金額と日付':(t==='out')?'④ 金額と日付':'③ 金額と日付';
   document.getElementById('jobHint').textContent = (t==='out')
-    ? 'どの作業の経費か分からないときは「共通（あとで分ける）」を選んでください。あとから直せます。'
+    ? 'いくつかの作業にまたがる経費は「共通」を選んでください。売上の比率で自動的に配分されます。'
     : '';
   eJob = null;
   renderJobTiles();
@@ -1605,7 +1605,7 @@ function renderReport(){
     `対象：${range==='fy'?fyLabel(fy):monthLabelFull(range)} ／ 明細 ${c.rows.length} 件`
     // 按分の余りは浮動小数点の誤差で 0.0000001 のような値になることがある。
     // そのまま真偽判定すると「¥0 は分けていません」と紛らわしい表示が出るため1円未満は無視する。
-    + (Math.abs(c.unallocated) >= 1 ? `<br><span style="color:var(--orange)">※ 共通の経費 ${yen(c.unallocated)} は作業に分けていません（設定で分け方を変えられます）</span>`:'');
+    + (Math.abs(c.unallocated) >= 1 ? `<br><span style="color:var(--orange)">※ 共通の経費 ${yen(c.unallocated)} は配分先の作業に売上がないため配分できていません（設定で配分先を確認してください）</span>`:'');
 
   const alloc=DB.settings.alloc;
   document.getElementById('repAllocNote').textContent =
@@ -1628,7 +1628,7 @@ function renderReport(){
       <td class="num">${rate===null?'—':rate+'%'}</td></tr>`;
   });
   if(Math.abs(c.unallocated) >= 1){
-    h+=`<tr><td>共通（分けていない分）</td><td class="num">—</td><td class="num">${num(c.unallocated)}</td><td class="num">—</td><td class="num minus">${num(-c.unallocated)}</td><td class="num">—</td></tr>`;
+    h+=`<tr><td>共通（配分できなかった分）</td><td class="num">—</td><td class="num">${num(c.unallocated)}</td><td class="num">—</td><td class="num minus">${num(-c.unallocated)}</td><td class="num">—</td></tr>`;
   }
   const ts=c.jobRows.reduce((s,r)=>s+r.sales,0);
   const td_=c.jobRows.reduce((s,r)=>s+r.direct,0)+c.unallocated;
@@ -2575,7 +2575,7 @@ async function importExcelFile(ev){
     ${createdCosts.length?`<div class="banner info">新しい費目を追加します：<b>${createdCosts.map(esc).join('・')}</b></div>`:''}
     ${skipped.length?`<div class="banner warn"><b>${skipped.length}件は取り込めません</b><div style="margin-top:6px;font-size:12px;max-height:150px;overflow:auto">${skipped.map(esc).join('<br>')}</div>
       <div style="margin-top:6px">Excel側を直してから、もう一度読み込んでください。</div></div>`:''}
-    <p class="hint">経費は作業が分からないため<b>「共通（あとで分ける）」</b>に入ります。収支タブで売上の比率に応じて自動で振り分けられます。</p>`;
+    <p class="hint">経費はExcelに作業の区別がないため<b>「共通」</b>に入り、売上の比率で自動的に配分されます。費目ごとの配分先は設定タブで変えられます。</p>`;
   document.getElementById('xlsModal').classList.add('open');
 }
 
