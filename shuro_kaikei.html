@@ -557,7 +557,8 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
     <div class="card">
       <h2>⚖ 共通の経費の分け方</h2>
-      <p class="hint">食材費のように「どの作業のぶんか分けにくい」経費は、入力のときに作業を<b>「共通（あとで分ける）」</b>にしておけます。ここでその分け方を決めます。</p>
+      <p class="hint">食材費のように「どの作業のぶんか分けにくい」経費は、入力のときに作業を<b>「共通（あとで分ける）」</b>にしておけます。ここでその分け方を決めます。<br>
+        <b>費目ごとに按分先を変えられます</b>（例：食材費は弁当と焼菓子だけ、水道光熱費はすべての作業）。上の「費目」の表の<b>按分先</b>から設定してください。</p>
       <div class="row">
         <select id="setAlloc" onchange="onAllocChange()" style="max-width:340px">
           <option value="sales">売上の比率で自動的に分ける（おすすめ）</option>
@@ -606,6 +607,26 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     </div>
   </section>
 </main>
+
+<!-- 費目ごとの按分先を選ぶモーダル -->
+<div class="modal" id="costJobsModal">
+  <div class="box" style="max-width:520px">
+    <h3>⚖ <span id="cjTitle"></span> の按分先</h3>
+    <p class="hint">この費目を「共通（あとで分ける）」で入力したとき、<b>どの作業に分けるか</b>を選びます。<br>
+      例：食材費は弁当と焼菓子だけ、水道光熱費はすべての作業、というように分けられます。<br>
+      選んだ作業の<b>売上の比率</b>で自動的に配分されます。</p>
+    <input type="hidden" id="cjId">
+    <div class="row" style="margin-bottom:10px">
+      <button class="btn sub" onclick="cjSetAll(true)">すべて選ぶ</button>
+      <button class="btn sub" onclick="cjSetAll(false)">すべて外す</button>
+    </div>
+    <div id="cjJobs" class="tiles" style="grid-template-columns:repeat(auto-fill,minmax(150px,1fr))"></div>
+    <div class="row" style="margin-top:18px">
+      <button class="btn" onclick="saveCostJobs()">保存</button>
+      <button class="btn sub" onclick="closeModal('costJobsModal')">やめる</button>
+    </div>
+  </div>
+</div>
 
 <!-- Excel読み込みの確認モーダル -->
 <div class="modal" id="xlsModal">
@@ -1036,11 +1057,31 @@ function closeModal(id){ document.getElementById(id).classList.remove('open'); }
  * 期間内の集計を返す
  * @param {string[]} months 'YYYY-MM' の配列
  */
+/**
+ * その費目の共通費を、どの作業に分けるか。
+ * 費目に指定がなければ全作業（例：水道光熱費）。
+ * 指定があればその作業だけ（例：食材費は弁当と焼菓子のみ）。
+ */
+function costTargets(costId){
+  const all = DB.jobs.map(j=>j.id);
+  const c = DB.costs.find(x=>x.id===costId);
+  if(!c || !c.jobs || !c.jobs.length) return all;
+  const t = c.jobs.filter(id=>all.includes(id));
+  return t.length ? t : all;
+}
+/** 按分先の表示名（設定画面用） */
+function costTargetLabel(c){
+  if(!c.jobs || !c.jobs.length) return 'すべての作業';
+  const names = c.jobs.map(id=>{ const j=DB.jobs.find(x=>x.id===id); return j?j.name:null; }).filter(Boolean);
+  return names.length ? names.join('・') : 'すべての作業';
+}
+
 function calc(months){
   const set = new Set(months);
   const rows = DB.entries.filter(e=>set.has(e.d.slice(0,7)));
   const sales={}, direct={}, salesMonth={}, costMonth={};
-  let income=0, cost=0, wage=0, common=0;
+  let income=0, cost=0, wage=0;
+  const commonByCost={};        // 費目ごとの共通費（費目によって按分先が違うため分けて持つ）
   DB.jobs.forEach(j=>{ sales[j.id]=0; direct[j.id]=0; });
   months.forEach(m=>{ salesMonth[m]=0; costMonth[m]=0; });
 
@@ -1052,28 +1093,38 @@ function calc(months){
       salesMonth[m]=(salesMonth[m]||0)+e.a;
     }else if(e.t==='out'){
       cost += e.a; costMonth[m]=(costMonth[m]||0)+e.a;
-      if(e.j===COMMON_JOB.id || !e.j) common += e.a;
+      if(e.j===COMMON_JOB.id || !e.j){
+        const k = e.c || '__none';
+        commonByCost[k] = (commonByCost[k]||0) + e.a;
+      }
       else direct[e.j]=(direct[e.j]||0)+e.a;
     }else if(e.t==='wage'){
       wage += e.a; costMonth[m]=(costMonth[m]||0)+e.a;
     }
   });
+  const common = Object.values(commonByCost).reduce((s,v)=>s+v,0);
 
-  // 共通費の按分
+  // 共通費の按分。費目ごとに「どの作業に分けるか」が違うので、費目単位で配分する。
   const alloc = DB.settings.alloc || 'sales';
   const allocated = {};
   DB.jobs.forEach(j=>allocated[j.id]=0);
-  if(common>0 && alloc!=='none'){
-    if(alloc==='sales' && income>0){
-      DB.jobs.forEach(j=>{ allocated[j.id] = common * (sales[j.id]||0) / income; });
-    }else if(alloc==='manual'){
-      const r = DB.settings.allocRatio||{};
-      let tot=0; DB.jobs.forEach(j=>tot += (+r[j.id]||0));
-      if(tot>0) DB.jobs.forEach(j=>{ allocated[j.id] = common * (+r[j.id]||0)/tot; });
-    }
+  let unallocated = 0;
+  if(alloc==='none'){
+    unallocated = common;
+  }else{
+    const ratio = DB.settings.allocRatio||{};
+    Object.entries(commonByCost).forEach(([cid, amt])=>{
+      const targets = costTargets(cid);
+      let base=0; const w={};
+      targets.forEach(id=>{
+        w[id] = (alloc==='manual') ? (+ratio[id]||0) : (sales[id]||0);
+        base += w[id];
+      });
+      if(base>0) targets.forEach(id=>{ allocated[id] += amt * w[id] / base; });
+      else unallocated += amt;   // 按分先に売上がなければ分けようがないので共通のまま残す
+    });
   }
   const allocatedSum = DB.jobs.reduce((s,j)=>s+allocated[j.id],0);
-  const unallocated = common - allocatedSum;
 
   const jobRows = DB.jobs.map(j=>{
     const s=sales[j.id]||0, d=direct[j.id]||0, a=allocated[j.id]||0;
@@ -1629,27 +1680,34 @@ function calcStd(fy){
   const share = id => income>0 ? (sales[id]||0)/income : (jid.length?1/jid.length:0);
 
   // ---- 費用を表4の科目に集計（直接費／共通費に分けて） ----
-  // acc[grp][std] = {total, direct:{jobId:額}, common:額}
+  // 共通費は費目ごとに按分先が違うので、費目IDごとに分けて持つ
+  // acc[grp][std] = {total, direct:{jobId:額}, commonByCost:{costId:額}}
   const acc = {};
-  const put = (grp,std,amt,jobId)=>{
+  const put = (grp,std,amt,jobId,costId)=>{
     acc[grp] = acc[grp] || {};
-    acc[grp][std] = acc[grp][std] || {total:0, direct:{}, common:0};
+    acc[grp][std] = acc[grp][std] || {total:0, direct:{}, commonByCost:{}};
     const a = acc[grp][std];
     a.total += amt;
     if(jobId && jobId!==COMMON_JOB.id && sales[jobId]!==undefined) a.direct[jobId]=(a.direct[jobId]||0)+amt;
-    else a.common += amt;
+    else { const k = costId || '__none'; a.commonByCost[k] = (a.commonByCost[k]||0) + amt; }
   };
   rows.forEach(e=>{
-    if(e.t==='out'){ const s=stdOf(e.c); put(s.grp, s.std, e.a, e.j); }
-    else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null); } // 工賃は共通→売上比で按分
+    if(e.t==='out'){ const s=stdOf(e.c); put(s.grp, s.std, e.a, e.j, e.c); }
+    else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null, null); } // 工賃は全作業へ売上比で按分
   });
 
-  /** 科目の作業別内訳（共通分は売上比按分） */
+  /** 科目の作業別内訳（共通分は費目ごとの按分先へ売上比で配る） */
   const byJob = (grp,std)=>{
     const a = acc[grp] && acc[grp][std];
     const out = {}; jid.forEach(i=>out[i]=0);
     if(!a) return out;
-    jid.forEach(i=>{ out[i] = (a.direct[i]||0) + a.common*share(i); });
+    jid.forEach(i=>{ out[i] = (a.direct[i]||0); });
+    Object.entries(a.commonByCost).forEach(([cid, amt])=>{
+      const targets = costTargets(cid).filter(id=>sales[id]!==undefined);
+      let base=0; targets.forEach(id=> base += (sales[id]||0));
+      if(base>0) targets.forEach(id=>{ out[id] += amt * (sales[id]||0) / base; });
+      // 按分先に売上がなければ列には出さない（合計欄にだけ残る）
+    });
     return out;
   };
   const amt = (grp,std)=> (acc[grp] && acc[grp][std]) ? acc[grp][std].total : 0;
@@ -2100,10 +2158,15 @@ function renderSettings(){
       ${STD_GROUPS.map(g=>`<option ${x.grp===g?'selected':''}>${g}</option>`).join('')}</select>`;
   const stdSel = x => `<select onchange="updCostStd('${x.id}','std',this.value)" style="padding:6px">
       ${(STD_ITEMS[x.grp]||STD_ITEMS['経費']).map(s=>`<option ${x.std===s?'selected':''}>${esc(s)}</option>`).join('')}</select>`;
-  let c=`<thead><tr><th style="text-align:left">費目名</th>${isStd()?'<th>区分</th><th>基準の勘定科目（表4）</th>':''}<th>使用</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  let c=`<thead><tr><th style="text-align:left">費目名</th><th style="text-align:left">共通のときの按分先</th>${isStd()?'<th>区分</th><th>基準の勘定科目（表4）</th>':''}<th>使用</th><th class="noprint">操作</th></tr></thead><tbody>`;
   DB.costs.forEach(x=>{
+    const all = !x.jobs || !x.jobs.length;
     c+=`<tr>
       <td style="text-align:left"><input type="text" value="${esc(x.name)}" onchange="renameCost('${x.id}',this.value)" style="padding:6px"></td>
+      <td style="text-align:left">
+        <button class="btn sub" style="padding:5px 10px;font-size:12px;text-align:left;max-width:100%"
+          onclick="openCostJobs('${x.id}')" title="この費目を共通にしたとき、どの作業に分けるかを決めます">
+          ${all?'すべての作業':esc(costTargetLabel(x))} ✎</button></td>
       ${isStd()?`<td>${grpSel(x)}</td><td>${stdSel(x)}</td>`:''}
       <td><label style="cursor:pointer"><input type="checkbox" ${x.active?'checked':''} onchange="toggleCost('${x.id}',this.checked)"> 使う</label></td>
       <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delCost('${x.id}')">削除</button></td>
@@ -2167,6 +2230,29 @@ function addCost(){
   document.getElementById('newCostName').value='';
   saveMaster(); renderAll(); toast('追加しました');
 }
+/** 費目ごとの按分先を選ぶ画面を開く */
+function openCostJobs(id){
+  const c = DB.costs.find(x=>x.id===id); if(!c) return;
+  document.getElementById('cjId').value = id;
+  document.getElementById('cjTitle').textContent = c.name;
+  const sel = new Set(c.jobs||[]);
+  document.getElementById('cjJobs').innerHTML = DB.jobs.map(j=>
+    `<label class="tile" style="cursor:pointer;display:block">
+       <input type="checkbox" class="cjChk" value="${j.id}" ${sel.has(j.id)?'checked':''} style="width:18px;height:18px;vertical-align:middle">
+       ${esc(j.name)}<span class="g">${esc(j.group)}</span></label>`).join('');
+  document.getElementById('costJobsModal').classList.add('open');
+}
+function cjSetAll(v){ document.querySelectorAll('#cjJobs .cjChk').forEach(c=>c.checked=v); }
+function saveCostJobs(){
+  const id = document.getElementById('cjId').value;
+  const c = DB.costs.find(x=>x.id===id); if(!c) return;
+  const picked = [...document.querySelectorAll('#cjJobs .cjChk:checked')].map(x=>x.value);
+  // 全部選ぶ＝指定なし（＝すべての作業）と同じ扱いにして、作業が増えたときも自動で対象になるようにする
+  c.jobs = (picked.length === 0 || picked.length === DB.jobs.length) ? [] : picked;
+  saveMaster(); closeModal('costJobsModal'); renderAll();
+  toast(`${c.name}の按分先を「${costTargetLabel(c)}」にしました`);
+}
+
 function onModeChange(){
   DB.settings.mode = document.getElementById('setMode').value;
   saveMaster(); renderAll();
