@@ -133,10 +133,35 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
   .kpi .v{font-size:22px}
 }
 @media print{
-  header,nav.tabs,.noprint{display:none!important}
+  header,nav.tabs,.noprint,.toast,.modal{display:none!important}
   body{background:#fff}
   main{padding:0;max-width:none}
   .card{box-shadow:none;border:1px solid #999;page-break-inside:avoid}
+
+  /* ===== 決算書類は厚労省の様式に近づけて印刷する ===== */
+  body.print-kessan .card{border:none;padding:0;margin:0 0 6mm}
+  body.print-kessan .tablewrap{overflow:visible}
+  body.print-kessan h2{font-size:12pt;text-align:center;margin:0 0 2mm;font-weight:700}
+  body.print-kessan .hint{text-align:center;font-size:9pt;color:#000;margin:0 0 3mm}
+  body.print-kessan table{font-size:8.5pt;border-collapse:collapse;width:100%;table-layout:auto}
+  /* 作業種別が多いときは、紙からはみ出して切れるより字を小さくして収める */
+  body.print-kessan.cols-many table{font-size:7pt}
+  body.print-kessan.cols-many th,body.print-kessan.cols-many td{padding:0.8mm 1mm}
+  body.print-kessan.cols-lots table{font-size:6pt}
+  body.print-kessan.cols-lots th,body.print-kessan.cols-lots td{padding:0.5mm 0.7mm}
+  body.print-kessan th,body.print-kessan td{
+    border:1px solid #000;padding:1.2mm 1.8mm;color:#000;background:#fff!important}
+  body.print-kessan th{font-weight:700;text-align:center}
+  body.print-kessan th:first-child,body.print-kessan td:first-child{
+    text-align:left;white-space:nowrap}
+  body.print-kessan td{white-space:nowrap}
+  body.print-kessan tr.total td{font-weight:700;border-top:1px solid #000}
+  body.print-kessan .minus{color:#000}
+  /* 各様式を1枚ずつに分ける */
+  body.print-kessan #ksTable1Card,
+  body.print-kessan #ksTable4Card,
+  body.print-kessan #ksBesshi1Card{page-break-after:always}
+  body.print-kessan #ksBesshi1Card{page-break-after:auto}
 }
 </style>
 </head>
@@ -421,12 +446,13 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
           <label class="lbl">年度</label>
           <select id="ksFy" onchange="renderKessan()"></select>
         </div>
-        <button class="btn sub" onclick="window.print()">🖨 印刷</button>
+        <button class="btn sub" onclick="printKessan()">🖨 様式を印刷</button>
         <button class="btn sub" onclick="exportKessanCsv()">📤 CSVで書き出し</button>
       </div>
+      <p class="hint">印刷すると、表1・表4・別紙1を1枚ずつ、A4横向きで出します（この画面の入力欄や工賃チェックは印刷されません）。</p>
     </div>
 
-    <div class="card">
+    <div class="card noprint">
       <h2>👥 利用者に支払うべき工賃</h2>
       <p class="hint noprint">指定基準第201条：生産活動収入 − 生産活動に係る経費 = 利用者に支払う工賃。余剰金は原則として生じません（積立金を計上した分を除く）。</p>
       <div class="kpis" id="ksWageKpis"></div>
@@ -455,20 +481,21 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
     </div>
 
-    <div class="card">
+    <div class="card" id="ksTable1Card">
       <h2>（表1）就労支援事業別事業活動明細書</h2>
       <div id="ksPeriod1" class="hint"></div>
       <div class="tablewrap"><table id="ksTable1"></table></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="ksTable4Card">
       <h2>（表4）就労支援事業明細書</h2>
       <div id="ksPeriod4" class="hint"></div>
       <div class="tablewrap"><table id="ksTable4"></table></div>
     </div>
 
-    <div class="card">
+    <div class="card" id="ksBesshi1Card">
       <h2>（別紙1）就労支援事業事業活動計算書</h2>
+      <div id="ksPeriodB1" class="hint"></div>
       <p class="hint noprint">参考様式です。ガイドラインでは「各法人が準拠する会計基準の様式で可」とされています。</p>
       <div class="tablewrap"><table id="ksBesshi1"></table></div>
     </div>
@@ -1724,6 +1751,7 @@ function renderKessan(){
 
   document.getElementById('ksPeriod1').textContent = periodLabel(fy);
   document.getElementById('ksPeriod4').textContent = periodLabel(fy);
+  document.getElementById('ksPeriodB1').textContent = periodLabel(fy);
 
   // ---- 工賃の適正額 ----
   const diff = c.wageDue - c.wagePaid;
@@ -1819,6 +1847,31 @@ function renderKessan(){
   b1+=r('設備等整備積立金 繰入', d.setsubiIn, fyData(fy-1).setsubiIn);
   b1+=r('設備等整備積立金 取崩', d.setsubiOut, fyData(fy-1).setsubiOut);
   document.getElementById('ksBesshi1').innerHTML = b1+`</tbody>`;
+}
+
+/**
+ * 決算書類を厚労省の様式に近い形で印刷する。
+ * 用紙は作業種別の列が多くても収まるようA4横。@page はCSSクラスで切り替えられないため、
+ * 印刷の直前だけ <style> を差し込み、終わったら取り除く。
+ */
+function printKessan(){
+  const st = document.createElement('style');
+  st.id = '_printPage';
+  st.textContent = '@page{ size: A4 landscape; margin: 8mm; }';
+  document.head.appendChild(st);
+  document.body.classList.add('print-kessan');
+  // 列数に応じて字の大きさを落とし、A4横からはみ出さないようにする
+  const cols = document.querySelectorAll('#ksTable4 thead th').length;
+  if(cols >= 16) document.body.classList.add('cols-lots');
+  else if(cols >= 12) document.body.classList.add('cols-many');
+  const cleanup = ()=>{
+    document.body.classList.remove('print-kessan','cols-many','cols-lots');
+    const s = document.getElementById('_printPage'); if(s) s.remove();
+    window.removeEventListener('afterprint', cleanup);
+  };
+  window.addEventListener('afterprint', cleanup);
+  window.print();
+  setTimeout(cleanup, 1000);   // afterprintが来ない環境の保険
 }
 
 function exportKessanCsv(){
