@@ -1476,7 +1476,9 @@ function renderReport(){
   document.getElementById('repKpis').innerHTML = kpiHtml(c);
   document.getElementById('repNote').innerHTML =
     `対象：${range==='fy'?fyLabel(fy):monthLabelFull(range)} ／ 明細 ${c.rows.length} 件`
-    + (c.unallocated ? `<br><span style="color:var(--orange)">※ 共通の経費 ${yen(c.unallocated)} は作業に分けていません（設定で分け方を変えられます）</span>`:'');
+    // 按分の余りは浮動小数点の誤差で 0.0000001 のような値になることがある。
+    // そのまま真偽判定すると「¥0 は分けていません」と紛らわしい表示が出るため1円未満は無視する。
+    + (Math.abs(c.unallocated) >= 1 ? `<br><span style="color:var(--orange)">※ 共通の経費 ${yen(c.unallocated)} は作業に分けていません（設定で分け方を変えられます）</span>`:'');
 
   const alloc=DB.settings.alloc;
   document.getElementById('repAllocNote').textContent =
@@ -1498,7 +1500,7 @@ function renderReport(){
       <td class="num ${r.gross<0?'minus':''}"><b>${num(r.gross)}</b></td>
       <td class="num">${rate===null?'—':rate+'%'}</td></tr>`;
   });
-  if(c.unallocated){
+  if(Math.abs(c.unallocated) >= 1){
     h+=`<tr><td>共通（分けていない分）</td><td class="num">—</td><td class="num">${num(c.unallocated)}</td><td class="num">—</td><td class="num minus">${num(-c.unallocated)}</td><td class="num">—</td></tr>`;
   }
   const ts=c.jobRows.reduce((s,r)=>s+r.sales,0);
