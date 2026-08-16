@@ -767,15 +767,12 @@ const LS_KEY = 'shuro_kaikei_db';
 const LS_FB  = 'shuro_kaikei_fb';
 const LS_OWNER = 'shuro_kaikei_owner';   // 手元のデータがどの事業所のものかを覚えておく
 
+/* 新しい事業所を登録したときの初期値。どの事業所にも共通しそうな3つだけにしてある。
+   足りない作業は入力画面の「＋ 新しい作業」やExcelの取り込みで増えていく。 */
 const DEFAULT_JOBS = [
-  {id:'bento',     name:'弁当',      group:'弁当',    active:true},
-  {id:'yakigashi', name:'焼菓子',    group:'商品販売', active:true},
-  {id:'drink',     name:'ドリンク',  group:'商品販売', active:true},
-  {id:'shukogei',  name:'手工芸',    group:'商品販売', active:true},
-  {id:'other',     name:'その他販売', group:'商品販売', active:true},
   {id:'seiso',     name:'清掃',      group:'委託作業', active:true},
-  {id:'seal',      name:'シール貼り', group:'委託作業', active:true},
-  {id:'sensha',    name:'洗車',      group:'委託作業', active:true}
+  {id:'shohin',    name:'商品販売',  group:'商品販売', active:true},
+  {id:'shukogei',  name:'手工芸',    group:'商品販売', active:true}
 ];
 /* 表4（就労支援事業明細書）の勘定科目。grp=大区分、std=表4の科目名 */
 const STD_ITEMS = {
@@ -2580,27 +2577,46 @@ function appTitleText(){
 }
 
 /* ============ 取り込み・書き出し ============ */
+/* Excelの勘定科目を、作業の名前・分類に読み替える表。
+   IDではなく名前で対応づけるので、事業所ごとに作業が違っても正しく紐づく。 */
 const IMPORT_MAP = {
-  '弁当販売|':'bento',
-  '委託作業|清掃':'seiso',
-  '委託作業|シール貼り作業':'seal',
-  '委託作業|洗車作業':'sensha',
-  '商品販売|焼菓子販売':'yakigashi',
-  '商品販売|焼き菓子販売':'yakigashi',
-  '商品販売|ドリンク':'drink',
-  '商品販売|手工芸':'shukogei',
-  '商品販売|マンゴー販売':'other',
-  '商品販売|':'other'
+  '弁当販売|':             {name:'弁当',       group:'弁当'},
+  '委託作業|清掃':          {name:'清掃',       group:'委託作業'},
+  '委託作業|シール貼り作業':  {name:'シール貼り',  group:'委託作業'},
+  '委託作業|洗車作業':       {name:'洗車',       group:'委託作業'},
+  '商品販売|焼菓子販売':     {name:'焼菓子',     group:'商品販売'},
+  '商品販売|焼き菓子販売':    {name:'焼菓子',     group:'商品販売'},
+  '商品販売|ドリンク':       {name:'ドリンク',    group:'商品販売'},
+  '商品販売|手工芸':        {name:'手工芸',      group:'商品販売'},
+  '商品販売|マンゴー販売':    {name:'その他販売',  group:'商品販売'},
+  '商品販売|':             {name:'その他販売',  group:'商品販売'}
 };
-function mapJob(k1,k2){
+/** 勘定科目から、作るべき作業の名前と分類を決める */
+function jobNameFor(k1,k2){
   const key=(k1||'').trim()+'|'+(k2||'').trim();
   if(IMPORT_MAP[key]) return IMPORT_MAP[key];
-  // 名前が一致する作業を探す
-  const byName = DB.jobs.find(j=>j.name===(k2||'').trim() || j.name===(k1||'').trim());
-  if(byName) return byName.id;
-  return null;
+  const name=(k2||'').trim() || (k1||'').trim();
+  return name ? {name, group:(k1||'その他').trim()} : null;
+}
+/** 既にある作業を名前で探す。無ければ null（呼び出し側で作る） */
+function mapJob(k1,k2){
+  const t = jobNameFor(k1,k2); if(!t) return null;
+  const j = DB.jobs.find(x=>x.name===t.name);
+  return j ? j.id : null;
 }
 
+/* 取り込みデータ(SEED_FY2025)が使っている作業。初期の作業を絞ったため、
+   取り込むときに足りない作業をここから補う。 */
+const SEED_JOBS = [
+  {id:'bento',     name:'弁当',      group:'弁当'},
+  {id:'yakigashi', name:'焼菓子',    group:'商品販売'},
+  {id:'drink',     name:'ドリンク',  group:'商品販売'},
+  {id:'shukogei',  name:'手工芸',    group:'商品販売'},
+  {id:'other',     name:'その他販売', group:'商品販売'},
+  {id:'seiso',     name:'清掃',      group:'委託作業'},
+  {id:'seal',      name:'シール貼り', group:'委託作業'},
+  {id:'sensha',    name:'洗車',      group:'委託作業'}
+];
 async function importSeed(){
   if(typeof SEED_FY2025==='undefined' || !SEED_FY2025.length){ alert('取り込みデータがありません'); return; }
   const exist = new Set(DB.entries.map(e=>e.d+'|'+e.t+'|'+e.a+'|'+(e.m||'')));
@@ -2608,7 +2624,19 @@ async function importSeed(){
     .filter(s=>!exist.has(s.d+'|'+s.t+'|'+s.a+'|'+(s.m||'')))
     .map(s=>({id:genId(), d:s.d, t:s.t, a:s.a, j:s.j||'', c:s.c||'', m:s.m||'', p:s.p||'', ts:new Date().toISOString()}));
   if(!list.length){ toast('すでに取り込み済みです'); return; }
-  if(!confirm(`Excelの ${list.length} 件を取り込みます。よろしいですか？`)) return;
+  // 取り込むデータが使う作業が無ければ足す（無いと集計の作業別に出てこない）
+  const need = new Set(list.map(e=>e.j).filter(Boolean));
+  const added=[];
+  need.forEach(id=>{
+    if(DB.jobs.some(j=>j.id===id)) return;
+    const def = SEED_JOBS.find(j=>j.id===id); if(!def) return;
+    DB.jobs.push({id:def.id, name:def.name, group:def.group, active:true});
+    added.push(def.name);
+  });
+  let msg = `Excelの ${list.length} 件を取り込みます。`;
+  if(added.length) msg += `\n新しい作業を追加します：${added.join('・')}`;
+  if(!confirm(msg+'\nよろしいですか？')) return;
+  if(added.length) await saveMaster();
   await putEntries(list);
   toast(list.length+'件 取り込みました'); renderAll();
 }
@@ -2653,10 +2681,10 @@ function resolveCostId(k1, k2, created){
 function resolveJobId(k1, k2, created){
   const id = mapJob(k1, k2);
   if(id) return id;
-  const name = (k2||'').trim() || (k1||'').trim();
-  if(!name) return null;
-  const j = {id:genId(), name, group:(k1||'その他').trim(), active:true};
-  DB.jobs.push(j); created.push(name);
+  const t = jobNameFor(k1, k2);
+  if(!t) return null;
+  const j = {id:genId(), name:t.name, group:t.group, active:true};
+  DB.jobs.push(j); created.push(t.name);
   return j.id;
 }
 
@@ -2898,7 +2926,7 @@ async function importCsvFile(ev){
         iK2=idx('勘定科目2')>=0?idx('勘定科目2'):idx('勘定科目２'),
         iP=idx('入金日');
   if(iD<0){ alert('「日付」の列が見つかりません。1行目を「日付, 摘要, 収入, 支出, 勘定科目1, 勘定科目2, 入金日」にしてください。'); return; }
-  const list=[]; const skipped=[];
+  const list=[]; const skipped=[]; const createdJobs=[]; const createdCosts=[];
   for(let i=1;i<rows.length;i++){
     const r=rows[i];
     const d=normDate(r[iD]); if(!d) continue;
@@ -2912,18 +2940,23 @@ async function importCsvFile(ev){
       if(out) list.push({id:genId(),d,t:'wage',a:out,j:'',c:'',m:memo,p:'',ts:new Date().toISOString()});
       continue;
     }
-    const j=mapJob(k1,k2);
     if(inc){
+      // 無い作業は自動で作る（事業所ごとに作業が違うため）
+      const j = resolveJobId(k1,k2,createdJobs);
       if(!j){ skipped.push(`${d} ${memo}（${k1}/${k2}）`); continue; }
       list.push({id:genId(),d,t:'in',a:inc,j,c:'',m:memo,p,ts:new Date().toISOString()});
     }else if(out){
-      list.push({id:genId(),d,t:'out',a:out,j:j||COMMON_JOB.id,c:'other',m:memo,p:'',ts:new Date().toISOString()});
+      const c = resolveCostId(k1,k2,createdCosts);
+      list.push({id:genId(),d,t:'out',a:out,j:COMMON_JOB.id,c,m:memo,p:'',ts:new Date().toISOString()});
     }
   }
   if(!list.length){ alert('取り込める行がありませんでした。'); return; }
   let msg=`${list.length}件を取り込みます。`;
+  if(createdJobs.length) msg+=`\n新しい作業を追加します：${createdJobs.join('・')}`;
+  if(createdCosts.length) msg+=`\n新しい費目を追加します：${createdCosts.join('・')}`;
   if(skipped.length) msg+=`\n（${skipped.length}件は作業が分からないため飛ばします）`;
   if(!confirm(msg)) return;
+  await saveMaster();
   await putEntries(list);
   toast(list.length+'件 取り込みました'); renderAll();
 }
