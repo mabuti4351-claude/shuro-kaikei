@@ -813,12 +813,24 @@ function saveLocal(){
   catch(e){ alert('保存できませんでした: '+e.message); }
 }
 
+/**
+ * クラウド保存の失敗をはっきり知らせる。
+ * 黙って失敗すると「保存したのに何も出ない」という状態になり原因が分からなくなる。
+ */
+function reportSyncError(err, what){
+  console.error(what, err);
+  setSync('⚠ 同期エラー');
+  const code = (err && (err.code || err.message)) || '不明なエラー';
+  alert(`クラウドに保存できませんでした。\n\n処理：${what}\n内容：${code}\n\nこの画面をそのまま伝えてください。`);
+}
+
 /** 明細の保存（1件） */
 async function putEntry(e){
   const i = DB.entries.findIndex(x=>x.id===e.id);
   if(i>=0) DB.entries[i]=e; else DB.entries.push(e);
   saveLocal();
-  if(cloudOn()){ try{ await entCol().doc(e.id).set(e); }catch(err){ console.error(err); setSync('⚠ 同期エラー'); } }
+  if(cloudOn()){ try{ await entCol().doc(e.id).set(e); }catch(err){ reportSyncError(err,'明細の保存'); return false; } }
+  return true;
 }
 async function removeEntry(id){
   DB.entries = DB.entries.filter(x=>x.id!==id);
@@ -835,16 +847,18 @@ async function putEntries(list){
         list.slice(i,i+400).forEach(e=>b.set(entCol().doc(e.id), e));
         await b.commit();
       }
-    }catch(err){ console.error(err); setSync('⚠ 同期エラー'); }
+    }catch(err){ reportSyncError(err,`明細${list.length}件の保存`); return false; }
   }
+  return true;
 }
 /** マスタ（作業・費目・設定）の保存 */
 async function saveMaster(){
   saveLocal();
   if(cloudOn()){
     try{ await wsDoc().set({jobs:DB.jobs, costs:DB.costs, presets:DB.presets, settings:DB.settings}, {merge:true}); }
-    catch(err){ console.error(err); setSync('⚠ 同期エラー'); }
+    catch(err){ reportSyncError(err,'作業・費目の設定の保存'); return false; }
   }
+  return true;
 }
 
 /* ============ Firebase ============ */
@@ -2344,33 +2358,47 @@ async function importExcelFile(ev){
 async function applyExcelImport(mode){
   if(!_pendingImport) return;
   const {list} = _pendingImport;
-  closeModal('xlsModal');
+  let saved = [];
+
   if(mode==='replace'){
-    if(!confirm(`今の明細（${DB.entries.length}件）をすべて消して、Excelの${list.length}件に入れ替えます。よろしいですか？`)){ return; }
+    // 確認を取ってから画面を閉じる（先に閉じると、取り消したのか成功したのか分からなくなる）
+    if(!confirm(`今の明細（${DB.entries.length}件）をすべて消して、Excelの${list.length}件に入れ替えます。よろしいですか？`)) return;
+    closeModal('xlsModal');
     const ids = DB.entries.map(e=>e.id);
     DB.entries = [];
-    if(cloudOn()){
+    if(cloudOn() && ids.length){
       try{
         for(let i=0;i<ids.length;i+=400){
           const b = window._fbDb.batch();
           ids.slice(i,i+400).forEach(id=>b.delete(entCol().doc(id)));
           await b.commit();
         }
-      }catch(e){ console.error(e); setSync('⚠ 同期エラー'); }
+      }catch(e){ reportSyncError(e,'古い明細の削除'); return; }
     }
-    await saveMaster();
-    await putEntries(list);
-    toast(`Excelの${list.length}件に入れ替えました`);
+    saved = list;
   }else{
+    closeModal('xlsModal');
     const exist = new Set(DB.entries.map(e=>e.d+'|'+e.t+'|'+e.a+'|'+(e.m||'')));
-    const add = list.filter(e=>!exist.has(e.d+'|'+e.t+'|'+e.a+'|'+(e.m||'')));
-    if(!add.length){ toast('追加する明細はありませんでした'); _pendingImport=null; return; }
-    await saveMaster();
-    await putEntries(add);
-    toast(`${add.length}件を追加しました`);
+    saved = list.filter(e=>!exist.has(e.d+'|'+e.t+'|'+e.a+'|'+(e.m||'')));
+    if(!saved.length){ toast('追加する明細はありませんでした'); _pendingImport=null; return; }
   }
+
+  if(!await saveMaster()) return;
+  if(!await putEntries(saved)) return;
+
+  // 本当にクラウドに入ったか数えて確かめる。入っていなければ黙って終わらせない。
+  if(cloudOn()){
+    try{
+      const snap = await entCol().get();
+      if(snap.size < saved.length){
+        alert(`クラウドに保存された明細が ${snap.size}件 で、取り込んだ ${saved.length}件 より少ないです。\n通信が不安定な可能性があります。もう一度読み込んでみてください。`);
+      }
+    }catch(e){ reportSyncError(e,'保存結果の確認'); return; }
+  }
+
   _pendingImport = null;
   renderAll();
+  alert(`✅ 取り込みが完了しました。\n\n明細：${DB.entries.length}件\n売上：${yen(DB.entries.filter(e=>e.t==='in').reduce((s,e)=>s+e.a,0))}\n\n「収支」タブで確認できます。`);
 }
 
 /** 試験運用中の一時的な機能：この事業所の明細をすべて消す（作業・費目の設定は残す） */
