@@ -606,20 +606,26 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
       <p class="hint">いつもの就労会計のExcel（.xlsm）をそのまま選ぶだけです。「出納帳（ここに入力）」シートを読み取ります。訂正したExcelができるたび、このボタンから読み込み直せます。</p>
       <div class="row" style="margin-top:14px">
-        <button class="btn sub" onclick="importSeed()">📚 これまでのExcel（2025年度 139件）を取り込む</button>
         <button class="btn sub" onclick="document.getElementById('csvFile').click()">📥 CSVを取り込む</button>
         <input type="file" id="csvFile" accept=".csv" style="display:none" onchange="importCsvFile(event)">
         <button class="btn sub" onclick="exportLedgerCsv()">📤 全データをCSVで書き出し</button>
-        <button class="btn sub" onclick="exportBackup()">💾 バックアップ（JSON）</button>
       </div>
       <p class="hint">CSVの列は「日付, 摘要, 収入, 支出, 勘定科目1, 勘定科目2, 入金日」。今のExcelからそのまま貼り付けられます。</p>
+
+      <h3>💾 まるごとバックアップ</h3>
+      <div class="row">
+        <button class="btn sub" onclick="exportBackup()">💾 バックアップを保存</button>
+        <button class="btn sub" onclick="document.getElementById('jsonFile').click()">📂 バックアップから復元</button>
+        <input type="file" id="jsonFile" accept=".json" style="display:none" onchange="importBackup(event)">
+      </div>
+      <p class="hint">明細だけでなく、<b>作業・費目・業者・按分先・事業所名・決算整理までまるごと</b>保存します。パソコンを替えるときや、消してしまったときの備えに。<br>
+        CSVは明細だけなので、元の状態に戻したいときはこちらを使ってください。</p>
+
       <div class="row" style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)">
-        <button class="btn sub" style="border-color:var(--orange);color:var(--orange)" onclick="reimportSeed()">🔁 Excel分だけ消して取り込み直す</button>
         <button class="btn warn" onclick="clearAll()">🗑 明細をすべて消す</button>
       </div>
-      <p class="hint">どちらも試験運用中の一時的なボタンです。運用が固まったら削除します。<br>
-        <b>🔁</b> はExcelから取り込んだ分だけを消して入れ直します（手入力したデータは残ります）。<br>
-        <b>🗑</b> は<b>この事業所の明細をすべて</b>消します（作業・費目の設定は残ります）。もとに戻せないので、先に「💾 バックアップ（JSON）」を取っておくと安心です。</p>
+      <p class="hint">試験運用中の一時的なボタンです。運用が固まったら削除します。<br>
+        <b>🗑</b> は<b>この事業所の明細をすべて</b>消します（作業・費目の設定は残ります）。もとに戻せないので、先に「💾 バックアップを保存」しておくと安心です。</p>
     </div>
   </section>
 </main>
@@ -2605,42 +2611,6 @@ function mapJob(k1,k2){
   return j ? j.id : null;
 }
 
-/* 取り込みデータ(SEED_FY2025)が使っている作業。初期の作業を絞ったため、
-   取り込むときに足りない作業をここから補う。 */
-const SEED_JOBS = [
-  {id:'bento',     name:'弁当',      group:'弁当'},
-  {id:'yakigashi', name:'焼菓子',    group:'商品販売'},
-  {id:'drink',     name:'ドリンク',  group:'商品販売'},
-  {id:'shukogei',  name:'手工芸',    group:'商品販売'},
-  {id:'other',     name:'その他販売', group:'商品販売'},
-  {id:'seiso',     name:'清掃',      group:'委託作業'},
-  {id:'seal',      name:'シール貼り', group:'委託作業'},
-  {id:'sensha',    name:'洗車',      group:'委託作業'}
-];
-async function importSeed(){
-  if(typeof SEED_FY2025==='undefined' || !SEED_FY2025.length){ alert('取り込みデータがありません'); return; }
-  const exist = new Set(DB.entries.map(e=>e.d+'|'+e.t+'|'+e.a+'|'+(e.m||'')));
-  const list = SEED_FY2025
-    .filter(s=>!exist.has(s.d+'|'+s.t+'|'+s.a+'|'+(s.m||'')))
-    .map(s=>({id:genId(), d:s.d, t:s.t, a:s.a, j:s.j||'', c:s.c||'', m:s.m||'', p:s.p||'', ts:new Date().toISOString()}));
-  if(!list.length){ toast('すでに取り込み済みです'); return; }
-  // 取り込むデータが使う作業が無ければ足す（無いと集計の作業別に出てこない）
-  const need = new Set(list.map(e=>e.j).filter(Boolean));
-  const added=[];
-  need.forEach(id=>{
-    if(DB.jobs.some(j=>j.id===id)) return;
-    const def = SEED_JOBS.find(j=>j.id===id); if(!def) return;
-    DB.jobs.push({id:def.id, name:def.name, group:def.group, active:true});
-    added.push(def.name);
-  });
-  let msg = `Excelの ${list.length} 件を取り込みます。`;
-  if(added.length) msg += `\n新しい作業を追加します：${added.join('・')}`;
-  if(!confirm(msg+'\nよろしいですか？')) return;
-  if(added.length) await saveMaster();
-  await putEntries(list);
-  toast(list.length+'件 取り込みました'); renderAll();
-}
-
 /* ============ Excel（.xlsm）の読み込み ============ */
 
 /** Excelの勘定科目1から、表4のどの科目に当たるかを推定する */
@@ -2867,20 +2837,6 @@ async function clearAll(){
   renderAll(); toast(`${n}件すべて消しました`);
 }
 
-/** 試験運用中の一時的な機能：取り込み済みのExcel分だけ消して最新の内容で入れ直す */
-async function reimportSeed(){
-  if(typeof SEED_FY2025==='undefined' || !SEED_FY2025.length){ alert('取り込みデータがありません'); return; }
-  const seedKey = s => s.d+'|'+s.t+'|'+s.a+'|'+(s.m||'');
-  const seedKeys = new Set(SEED_FY2025.map(seedKey));
-  const toRemove = DB.entries.filter(e=>seedKeys.has(seedKey(e)));
-  if(!confirm(`これまでに取り込んだExcel分（${toRemove.length}件）をいったん消して、最新の内容で取り込み直します。\n手入力したデータは消えません。よろしいですか？`)) return;
-  for(const e of toRemove){ await removeEntry(e.id); }
-  const list = SEED_FY2025.map(s=>({id:genId(), d:s.d, t:s.t, a:s.a, j:s.j||'', c:s.c||'', m:s.m||'', p:s.p||'', ts:new Date().toISOString()}));
-  await putEntries(list);
-  toast(`Excel分を消して、${list.length}件を取り込み直しました`);
-  renderAll();
-}
-
 function parseCsv(text){
   const rows=[]; let row=[], cell='', q=false;
   text = text.replace(/^﻿/,'');
@@ -3002,8 +2958,49 @@ function exportReportCsv(){
 }
 
 function exportBackup(){
-  downloadFile('backup_'+todayISO()+'.json', JSON.stringify(DB,null,1), 'application/json');
-  toast('バックアップを書き出しました');
+  const name = (DB.settings.officeName||'').trim();
+  downloadFile(`バックアップ_${name?name+'_':''}${todayISO()}.json`, JSON.stringify(DB,null,1), 'application/json');
+  toast('バックアップを保存しました');
+}
+
+/** バックアップ（JSON）から、明細も設定もまるごと戻す */
+async function importBackup(ev){
+  const f = ev.target.files[0]; if(!f) return;
+  ev.target.value = '';
+  let data;
+  try{
+    data = JSON.parse(await f.text());
+  }catch(e){
+    alert('このファイルは読み取れませんでした。バックアップのJSONファイルを選んでください。'); return;
+  }
+  // 中身がバックアップの形をしているか確かめてから使う
+  if(!data || typeof data!=='object' || !Array.isArray(data.entries) || !Array.isArray(data.jobs)){
+    alert('バックアップのファイルではないようです。\n「💾 バックアップを保存」で作ったJSONファイルを選んでください。'); return;
+  }
+  const name = (data.settings && data.settings.officeName) || '(事業所名なし)';
+  if(!confirm(`バックアップから復元します。\n\n事業所：${name}\n明細：${data.entries.length}件\n作業：${data.jobs.length}個\n\n今のデータ（明細${DB.entries.length}件）はすべて置き換わります。よろしいですか？`)) return;
+  if(!confirm('本当に復元してよろしいですか？　今のデータはもとに戻せません。')) return;
+
+  // クラウド側の明細を消してから入れ直す
+  const oldIds = DB.entries.map(e=>e.id);
+  if(cloudOn() && oldIds.length){
+    try{
+      for(let i=0;i<oldIds.length;i+=400){
+        const b = window._fbDb.batch();
+        oldIds.slice(i,i+400).forEach(id=>b.delete(entCol().doc(id)));
+        await b.commit();
+      }
+    }catch(e){ reportSyncError(e,'古い明細の削除'); return; }
+  }
+  DB.entries = [];
+  DB.jobs    = data.jobs;
+  DB.costs   = Array.isArray(data.costs) ? data.costs : DB.costs;
+  DB.presets = Array.isArray(data.presets) ? data.presets : [];
+  DB.settings= Object.assign(defaultSettings(), data.settings||{});
+  if(!await saveMaster()) return;
+  if(!await putEntries(data.entries)) return;
+  renderAll();
+  alert(`✅ 復元しました。\n\n明細：${DB.entries.length}件\n作業：${DB.jobs.length}個`);
 }
 
 /* ============ タブ・全体描画 ============ */
@@ -3053,7 +3050,6 @@ async function installApp(){
 }
 
 /* ============ 起動 ============ */
-const SEED_FY2025 = [{"d":"2025-10-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2025-10-10"},{"d":"2025-10-10","t":"wage","a":714007,"j":"","m":"利用者工賃","p":""},{"d":"2025-10-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2025-10-22","t":"in","a":11618,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2025-10-22"},{"d":"2025-10-31","t":"in","a":29590,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2025-10-31","t":"in","a":230808,"j":"yakigashi","m":"焼菓子販売","p":"2025-10-31"},{"d":"2025-10-31","t":"in","a":51480,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2025-10-31","t":"in","a":5760,"j":"drink","m":"ドリンク販売","p":"2025-10-31"},{"d":"2025-10-31","t":"in","a":4200,"j":"shukogei","m":"手工芸","p":"2025-10-31"},{"d":"2025-10-31","t":"in","a":370200,"j":"bento","m":"弁当代（GHトグチ）","p":""},{"d":"2025-10-31","t":"in","a":909000,"j":"bento","m":"弁当代","p":""},{"d":"2025-10-31","t":"in","a":6160,"j":"seal","m":"山香","p":"2025-10-31"},{"d":"2025-10-31","t":"in","a":80,"j":"yakigashi","m":"雑収入","p":"2025-10-31"},{"d":"2025-10-22","t":"in","a":1100,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場）","p":"2025-10-22"},{"d":"2025-11-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2025-11-10"},{"d":"2025-11-10","t":"wage","a":644130,"j":"","m":"利用者工賃","p":""},{"d":"2025-11-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2025-11-20","t":"in","a":6947,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2025-11-20"},{"d":"2025-11-30","t":"in","a":5640,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2025-11-30","t":"in","a":123757,"j":"yakigashi","m":"焼菓子販売","p":"2025-11-30"},{"d":"2025-11-30","t":"in","a":43047,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2025-11-30","t":"in","a":5240,"j":"drink","m":"ドリンク販売","p":"2025-11-30"},{"d":"2025-11-30","t":"in","a":15560,"j":"shukogei","m":"手工芸","p":"2025-11-30"},{"d":"2025-11-30","t":"in","a":834600,"j":"bento","m":"弁当代（GHトグチ）","p":""},{"d":"2025-11-30","t":"in","a":324000,"j":"bento","m":"弁当代","p":""},{"d":"2025-11-30","t":"in","a":8448,"j":"seal","m":"山香","p":"2025-11-30"},{"d":"2025-11-30","t":"in","a":10,"j":"yakigashi","m":"雑収入","p":"2025-11-30"},{"d":"2025-11-20","t":"in","a":590,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場）","p":"2025-11-20"},{"d":"2025-12-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2025-12-10"},{"d":"2025-12-10","t":"wage","a":705211,"j":"","m":"利用者工賃","p":""},{"d":"2025-12-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2025-12-20","t":"in","a":6119,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2025-12-20"},{"d":"2025-12-30","t":"in","a":199232,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2025-12-30","t":"in","a":262298,"j":"yakigashi","m":"焼菓子販売","p":"2025-12-29"},{"d":"2025-12-30","t":"in","a":44300,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2025-12-30","t":"in","a":4320,"j":"drink","m":"ドリンク販売","p":"2025-12-29"},{"d":"2025-12-30","t":"in","a":17812,"j":"shukogei","m":"手工芸","p":"2025-12-29"},{"d":"2025-12-30","t":"in","a":367800,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2025-12-30","t":"in","a":922200,"j":"bento","m":"弁当代","p":""},{"d":"2025-12-30","t":"in","a":9339,"j":"seal","m":"山香","p":"2025-12-29"},{"d":"2025-12-30","t":"in","a":-80,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2025-12-29"},{"d":"2026-01-09","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2026-01-09"},{"d":"2026-01-09","t":"wage","a":630136,"j":"","m":"利用者工賃","p":""},{"d":"2026-01-09","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-01-20","t":"in","a":3374,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-01-20"},{"d":"2026-01-31","t":"in","a":29480,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-01-31","t":"in","a":105119,"j":"yakigashi","m":"焼菓子販売","p":"2026-02-02"},{"d":"2026-01-31","t":"in","a":62738,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-01-31","t":"in","a":3960,"j":"drink","m":"ドリンク販売","p":"2026-02-02"},{"d":"2026-01-31","t":"in","a":14230,"j":"shukogei","m":"手工芸","p":"2026-02-02"},{"d":"2026-01-31","t":"in","a":377400,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-01-31","t":"in","a":875400,"j":"bento","m":"弁当代","p":""},{"d":"2026-01-31","t":"in","a":2816,"j":"seal","m":"山香","p":""},{"d":"2026-01-31","t":"in","a":2,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-02-02"},{"d":"2026-01-31","t":"in","a":38390,"j":"yakigashi","m":"焼菓子販売（インフォマート様売上分）","p":"2026-01-30"},{"d":"2026-02-03","t":"in","a":1890,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場様売上分）","p":"2026-02-03"},{"d":"2026-02-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2026-02-10"},{"d":"2026-02-10","t":"wage","a":619206,"j":"","m":"利用者工賃","p":""},{"d":"2026-02-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-02-10","t":"in","a":47010,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場様売上分）","p":"2026-02-10"},{"d":"2026-02-17","t":"in","a":2400,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場様売上分）","p":"2026-02-17"},{"d":"2026-02-19","t":"in","a":1200,"j":"yakigashi","m":"焼菓子販売（嘉手納町役場様売上分）","p":"2026-02-19"},{"d":"2026-02-20","t":"in","a":9827,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-02-20"},{"d":"2026-02-27","t":"in","a":39076,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-02-27","t":"in","a":205026,"j":"yakigashi","m":"焼菓子販売","p":"2026-03-03"},{"d":"2026-02-27","t":"in","a":66620,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-02-27","t":"in","a":4140,"j":"drink","m":"ドリンク販売","p":"2026-03-03"},{"d":"2026-02-27","t":"in","a":4730,"j":"shukogei","m":"手工芸","p":"2026-03-03"},{"d":"2026-02-27","t":"in","a":342600,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-02-27","t":"in","a":898800,"j":"bento","m":"弁当代","p":""},{"d":"2026-02-27","t":"in","a":7040,"j":"seal","m":"山香","p":"2026-03-03"},{"d":"2026-02-27","t":"in","a":-900,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-03-03"},{"d":"2026-03-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":"2026-03-10"},{"d":"2026-03-10","t":"wage","a":657741,"j":"","m":"利用者工賃","p":""},{"d":"2026-03-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-03-23","t":"in","a":20105,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-03-23"},{"d":"2026-03-31","t":"in","a":74649,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-03-31","t":"in","a":266872,"j":"yakigashi","m":"焼菓子販売","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":118665,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-03-31","t":"in","a":8690,"j":"drink","m":"ドリンク販売","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":32060,"j":"shukogei","m":"手工芸","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":367200,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":978600,"j":"bento","m":"弁当代","p":""},{"d":"2026-03-31","t":"in","a":7040,"j":"seal","m":"山香","p":"2026-04-03"},{"d":"2026-03-31","t":"in","a":-61,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-04-03"},{"d":"2026-04-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":""},{"d":"2026-04-10","t":"wage","a":665976,"j":"","m":"利用者工賃","p":""},{"d":"2026-04-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-04-20","t":"in","a":8261,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-04-20"},{"d":"2026-04-30","t":"in","a":20760,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-04-30","t":"in","a":226255,"j":"yakigashi","m":"焼菓子販売","p":"2026-05-07"},{"d":"2026-04-30","t":"in","a":54880,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-04-30","t":"in","a":4950,"j":"drink","m":"ドリンク販売","p":"2026-05-07"},{"d":"2026-04-30","t":"in","a":25976,"j":"shukogei","m":"手工芸","p":"2026-05-07"},{"d":"2026-04-30","t":"in","a":346800,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-04-30","t":"in","a":1124400,"j":"bento","m":"弁当代","p":""},{"d":"2026-04-30","t":"in","a":6644,"j":"seal","m":"山香","p":"2026-05-07"},{"d":"2026-04-30","t":"in","a":-10,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-05-07"},{"d":"2026-05-08","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":""},{"d":"2026-05-08","t":"wage","a":523588,"j":"","m":"利用者工賃","p":""},{"d":"2026-05-08","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-05-20","t":"in","a":6848,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-05-20"},{"d":"2026-05-29","t":"in","a":21130,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-05-29","t":"in","a":125645,"j":"yakigashi","m":"焼菓子販売","p":"2026-06-03"},{"d":"2026-05-29","t":"in","a":85256,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-05-29","t":"in","a":6400,"j":"drink","m":"ドリンク販売","p":"2026-06-03"},{"d":"2026-05-29","t":"in","a":8620,"j":"shukogei","m":"手工芸","p":"2026-06-03"},{"d":"2026-05-29","t":"in","a":417600,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-05-29","t":"in","a":973800,"j":"bento","m":"弁当代","p":""},{"d":"2026-05-29","t":"in","a":6692,"j":"seal","m":"山香","p":"2026-06-03"},{"d":"2026-05-29","t":"in","a":90,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-06-03"},{"d":"2026-06-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":""},{"d":"2026-06-10","t":"wage","a":522730,"j":"","m":"利用者工賃","p":""},{"d":"2026-06-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-06-20","t":"in","a":12347,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-06-20"},{"d":"2026-06-30","t":"in","a":39590,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-06-30","t":"in","a":82004,"j":"yakigashi","m":"焼菓子販売","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":84036,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-06-30","t":"in","a":5960,"j":"drink","m":"ドリンク販売","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":2000,"j":"shukogei","m":"手工芸","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":361800,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-06-30","t":"in","a":879000,"j":"bento","m":"弁当代","p":""},{"d":"2026-06-30","t":"in","a":3520,"j":"seal","m":"山香","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":80,"j":"yakigashi","m":"焼き菓子販売 訂正処理","p":"2026-07-01"},{"d":"2026-06-30","t":"in","a":166600,"j":"other","m":"きらめきマルシェ販売","p":"2026-07-01"},{"d":"2026-07-10","t":"in","a":10500,"j":"seiso","m":"清掃 徳里住建","p":""},{"d":"2026-07-10","t":"wage","a":0,"j":"","m":"利用者工賃","p":""},{"d":"2026-07-10","t":"in","a":5000,"j":"seiso","m":"教会清掃代","p":""},{"d":"2026-07-20","t":"in","a":12509,"j":"yakigashi","m":"焼菓子販売（からはーい）","p":"2026-07-21"},{"d":"2026-07-30","t":"in","a":44570,"j":"yakigashi","m":"焼菓子販売（本社売上分）","p":""},{"d":"2026-07-30","t":"in","a":69032,"j":"yakigashi","m":"焼菓子販売","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":87048,"j":"yakigashi","m":"焼菓子販売（クレジット、QR決済）","p":""},{"d":"2026-07-30","t":"in","a":2160,"j":"drink","m":"ドリンク販売","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":11030,"j":"shukogei","m":"手工芸","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":0,"j":"bento","m":"弁当代（GHトグチ,HOME渡慶次）","p":""},{"d":"2026-07-30","t":"in","a":0,"j":"bento","m":"弁当代","p":""},{"d":"2026-07-30","t":"in","a":5156,"j":"seal","m":"山香","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":29420,"j":"other","m":"商品販売（マンゴー）","p":"2026-08-03"},{"d":"2026-07-30","t":"in","a":500,"j":"sensha","m":"商品販売（洗車）","p":"2026-08-03"}];
 
 // Firebase設定を直接セット（ymproject-shuro）
 (function() {
