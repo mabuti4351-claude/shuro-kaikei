@@ -94,6 +94,10 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 .tile.sel{border-color:var(--green);background:var(--green);color:#fff}
 .tile .g{display:block;font-size:11px;font-weight:400;opacity:.7;margin-top:2px}
 .tile.sel .g{opacity:.9}
+/* 未入金の一覧が長くても、チェックしながらボタンを押せるように貼り付けておく。
+   topはタブバーの実際の高さから計算して入れる（画面幅で折り返して高さが変わるため） */
+.dpBulkBar{position:sticky;z-index:20;background:var(--card);
+  padding:10px 0;margin-bottom:6px;border-bottom:1px solid var(--line)}
 .tile.addtile{border-style:dashed;color:var(--sub);background:#fafbfc}
 .tile.addtile:hover{border-color:var(--green);color:var(--green-d);background:var(--green-l)}
 
@@ -410,8 +414,21 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
   <!-- ============ 入金票 ============ -->
   <section id="view-deposit" class="view">
+    <!-- よく使う「入金日を入れる」作業を先に置く（印刷対象ではない） -->
     <div class="card noprint">
-      <h2>🧾 入金票</h2>
+      <h2>📌 入金日を入れる<span id="dpPendCount" class="badge" style="color:var(--orange);margin-left:8px"></span></h2>
+      <p class="hint">本部へ渡した分にチェックを入れて、日付を選んでボタンを押してください。1件ずつ開かなくてもまとめて入ります。</p>
+      <div class="row dpBulkBar">
+        <label style="cursor:pointer"><input type="checkbox" id="dpAll" onchange="toggleAllPending(this)"> すべて選ぶ</label>
+        <input type="date" id="dpBulkDate" style="max-width:190px">
+        <button class="btn" onclick="applyBulkDeposit()">📌 選んだ分にまとめて入金日を入れる</button>
+        <span id="dpSelSum" style="font-weight:700;color:var(--green-d)"></span>
+      </div>
+      <div class="tablewrap"><table id="dpPending"></table></div>
+    </div>
+
+    <div class="card noprint">
+      <h2>🧾 入金票を見る・印刷する</h2>
       <p class="hint">本部へお金を渡した日を選ぶと、その日ぶんの内訳が出ます。そのまま印刷できます。</p>
       <div class="row">
         <div class="grow" style="max-width:220px">
@@ -423,16 +440,6 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     </div>
     <div class="card" id="dpCard">
       <div id="dpBody"></div>
-    </div>
-    <div class="card noprint">
-      <h3>⚠ 入金日がまだ入っていない売上</h3>
-      <p class="hint">まとめて本部へ渡したときは、渡した分にチェックを入れて、下の日付を選んでボタンを押してください。1件ずつ開かなくても入金日が入ります。</p>
-      <div class="row" style="margin-bottom:12px">
-        <label style="cursor:pointer"><input type="checkbox" id="dpAll" onchange="toggleAllPending(this)"> すべて選ぶ</label>
-        <input type="date" id="dpBulkDate" style="max-width:190px">
-        <button class="btn" onclick="applyBulkDeposit()">📌 選んだ分にまとめて入金日を入れる</button>
-      </div>
-      <div class="tablewrap"><table id="dpPending"></table></div>
     </div>
   </section>
 
@@ -2344,16 +2351,38 @@ function renderDeposit(){
   let p=`<thead><tr><th class="noprint" style="width:40px"></th><th>日付</th><th>作業</th><th style="text-align:left">メモ</th><th>金額</th><th class="noprint"></th></tr></thead><tbody>`;
   if(!pend.length) p+=`<tr><td colspan="6" style="text-align:center;color:var(--sub);padding:16px">ありません 👍</td></tr>`;
   pend.slice(0,60).forEach(e=>{
-    p+=`<tr><td class="noprint" style="text-align:center"><input type="checkbox" class="dpChk" value="${e.id}" style="width:18px;height:18px;cursor:pointer"></td>
+    p+=`<tr><td class="noprint" style="text-align:center"><input type="checkbox" class="dpChk" value="${e.id}" data-a="${e.a}" onchange="updateDpSelSum()" style="width:18px;height:18px;cursor:pointer"></td>
         <td>${e.d.replace(/-/g,'/')}</td><td style="text-align:right">${esc(jobName(e.j))}</td><td style="text-align:left">${esc(e.m||'')}</td><td class="num">${num(e.a)}</td>
         <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">1件ずつ直す</button></td></tr>`;
   });
   if(pend.length>60) p+=`<tr><td colspan="6" style="text-align:center;color:var(--sub)">…ほか ${pend.length-60} 件</td></tr>`;
   document.getElementById('dpPending').innerHTML=p+`</tbody>`;
+
+  const cnt=document.getElementById('dpPendCount');
+  if(cnt) cnt.textContent = pend.length ? `のこり ${pend.length}件` : '';
+  updateDpSelSum();
+  placeDpBulkBar();
 }
+
+/** 操作バーがタブバーに隠れないよう、タブバーの真下に貼り付ける */
+function placeDpBulkBar(){
+  const bar=document.querySelector('.dpBulkBar'), tabs=document.querySelector('nav.tabs');
+  if(!bar||!tabs) return;
+  const tabsTop=parseFloat(getComputedStyle(tabs).top)||0;
+  bar.style.top=(tabsTop+tabs.offsetHeight)+'px';
+}
+window.addEventListener('resize', placeDpBulkBar);
 
 function toggleAllPending(cb){
   document.querySelectorAll('#dpPending .dpChk').forEach(c=>c.checked=cb.checked);
+  updateDpSelSum();
+}
+/** 選んだ件数と合計を出す。渡した現金と突き合わせられるように。 */
+function updateDpSelSum(){
+  const el=document.getElementById('dpSelSum'); if(!el) return;
+  const sel=[...document.querySelectorAll('#dpPending .dpChk:checked')];
+  const sum=sel.reduce((s,c)=>s+(+c.dataset.a||0),0);
+  el.textContent = sel.length ? `選んだ ${sel.length}件　${yen(sum)}` : '';
 }
 /** チェックした売上に、まとめて同じ入金日を入れる */
 async function applyBulkDeposit(){
