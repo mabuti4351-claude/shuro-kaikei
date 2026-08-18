@@ -503,7 +503,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
 
       <h3>積立金（設備等整備積立金）</h3>
-      <p class="hint">上限のチェックは行いません。国の基準（就労支援事業収入の10%以内、資産取得価額の75%以内）に沿っているか、ご自身で確認してください。</p>
+      <div id="ksSetsubiLimit" class="banner info" style="margin-bottom:10px"></div>
       <div class="row">
         <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 前期繰越</label><input type="number" id="ksSetsubiOpen" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 繰入</label><input type="number" id="ksSetsubiIn" onchange="saveFyData()"></div>
@@ -1935,6 +1935,15 @@ function renderKessan(){
       koichinLimEl.innerHTML = `ℹ 入力した平均額（${yen(lim.avg)}）から算出した上限：
         <b>年間の積立は${yen(lim.yearLimit)}まで</b>／<b>残高は${yen(lim.totalLimit)}まで</b>`;
     }
+  }
+
+  // ---- 設備等整備積立金の上限案内（表示のみ。当期収入から自動計算できる分だけ） ----
+  const setsubiLimEl = document.getElementById('ksSetsubiLimit');
+  if(setsubiLimEl){
+    const setsubiYearLimit = c.income * 0.10;
+    setsubiLimEl.innerHTML = `ℹ 当期の就労支援事業収入（${yen(c.income)}）から算出した上限：
+      <b>年間の積立は${yen(setsubiYearLimit)}まで</b>
+      <br><span style="font-size:12px">※ 残高の上限（資産取得価額の75%以内）は、資産の取得価額を把握していないため計算できません。ご自身で確認してください。</span>`;
   }
 
   const officeLine = (DB.settings.officeName||'').trim() ? DB.settings.officeName.trim()+'　' : '';
