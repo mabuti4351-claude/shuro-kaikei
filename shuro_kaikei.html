@@ -490,14 +490,16 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <div class="grow" style="max-width:210px"><label class="lbl">期末 製品（商品）棚卸高</label><input type="number" id="ksCloseProd" onchange="saveFyData()"></div>
       </div>
       <h3>積立金（工賃変動積立金・設備等整備積立金）</h3>
-      <p class="hint">前期繰越額を入れると、別紙3・別紙4の当期末残高まで自動で計算します。</p>
+      <p class="hint">前期繰越額を入れると、別紙3・別紙4の当期末残高まで自動で計算します。積立額には国の基準で上限が定められています（下に現在の上限額を表示します）。</p>
+      <div id="ksKoichinLimit" class="banner info" style="margin-bottom:10px"></div>
       <div class="row">
         <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 前期繰越</label><input type="number" id="ksKoichinOpen" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 繰入</label><input type="number" id="ksKoichinIn" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 取崩</label><input type="number" id="ksKoichinOut" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 当期末残高</label><input type="number" id="ksKoichinEnd" disabled style="background:#f0f2f5"></div>
       </div>
-      <div class="row" style="margin-top:10px">
+      <div id="ksSetsubiLimit" class="banner info" style="margin:14px 0 10px"></div>
+      <div class="row">
         <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 前期繰越</label><input type="number" id="ksSetsubiOpen" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 繰入</label><input type="number" id="ksSetsubiIn" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">設備等整備積立金 取崩</label><input type="number" id="ksSetsubiOut" onchange="saveFyData()"></div>
@@ -1862,6 +1864,25 @@ function calcStd(fy){
           wagePaid, costExWage, tsumitate, wageDue};
 }
 
+/**
+ * 積立金の上限（運用ガイドラインP31）。
+ * 工賃変動積立金：各年度の積立限度＝過去3年間の平均賃金・工賃の10%以内、
+ *                積立上限額（残高）＝同50%以内。
+ * 設備等整備積立金：各年度の積立限度＝当期の就労支援事業収入の10%以内。
+ *   積立上限額（就労支援事業資産の取得価額の75%以内）は、このアプリが
+ *   資産の取得価額を把握していないため計算できない。
+ */
+function reserveLimits(fy){
+  const years = [fy-1, fy-2, fy-3].filter(y => DB.entries.some(e=>fyOf(e.d)===y));
+  const vals = years.map(y=>calcStd(y).wagePaid);
+  const avg = vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : 0;
+  const income = calcStd(fy).income;
+  return {
+    koichin: { avg, years, yearLimit: avg*0.10, totalLimit: avg*0.50 },
+    setsubi: { income, yearLimit: income*0.10 }
+  };
+}
+
 function renderKessanSelectors(){
   const sel=document.getElementById('ksFy'), keep=sel.value;
   sel.innerHTML = allFys().map(fy=>`<option value="${fy}">${fyLabel(fy)}</option>`).join('');
@@ -1877,7 +1898,28 @@ function saveFyData(){
   d.openProd=g('ksOpenProd'); d.closeProd=g('ksCloseProd');
   d.koichinIn=g('ksKoichinIn'); d.koichinOut=g('ksKoichinOut'); d.koichinOpen=g('ksKoichinOpen');
   d.setsubiIn=g('ksSetsubiIn'); d.setsubiOut=g('ksSetsubiOut'); d.setsubiOpen=g('ksSetsubiOpen');
-  saveMaster(); renderKessan();
+  saveMaster();
+  checkReserveLimits(fy, d);
+  renderKessan();
+}
+
+/** 積立額が国の基準の上限を超えていたらアラートで知らせる */
+function checkReserveLimits(fy, d){
+  const lim = reserveLimits(fy);
+  const msgs = [];
+  if(lim.koichin.years.length){
+    if((d.koichinIn||0) > lim.koichin.yearLimit + 0.5){
+      msgs.push(`工賃変動積立金の当期積立額（${yen(d.koichinIn)}）が、年間の上限（過去${lim.koichin.years.length}年平均の10%＝${yen(lim.koichin.yearLimit)}）を超えています。`);
+    }
+    const koichinEnd = (d.koichinOpen||0)+(d.koichinIn||0)-(d.koichinOut||0);
+    if(koichinEnd > lim.koichin.totalLimit + 0.5){
+      msgs.push(`工賃変動積立金の残高（${yen(koichinEnd)}）が、上限（過去${lim.koichin.years.length}年平均の50%＝${yen(lim.koichin.totalLimit)}）を超えています。`);
+    }
+  }
+  if((d.setsubiIn||0) > lim.setsubi.yearLimit + 0.5){
+    msgs.push(`設備等整備積立金の当期積立額（${yen(d.setsubiIn)}）が、年間の上限（就労支援事業収入の10%＝${yen(lim.setsubi.yearLimit)}）を超えています。`);
+  }
+  if(msgs.length) alert('⚠ 積立金が国の基準の上限を超えています。\n\n' + msgs.join('\n\n') + '\n\n（運用ガイドラインP31）');
 }
 
 function periodLabel(fy){
@@ -1899,8 +1941,35 @@ function renderKessan(){
   st('ksKoichinIn',d.koichinIn); st('ksKoichinOut',d.koichinOut); st('ksKoichinOpen',d.koichinOpen);
   st('ksSetsubiIn',d.setsubiIn); st('ksSetsubiOut',d.setsubiOut); st('ksSetsubiOpen',d.setsubiOpen);
   // 当期末残高＝前期繰越＋当期積立−当期取崩
-  st('ksKoichinEnd', (d.koichinOpen||0)+(d.koichinIn||0)-(d.koichinOut||0));
-  st('ksSetsubiEnd', (d.setsubiOpen||0)+(d.setsubiIn||0)-(d.setsubiOut||0));
+  const koichinEnd = (d.koichinOpen||0)+(d.koichinIn||0)-(d.koichinOut||0);
+  const setsubiEnd = (d.setsubiOpen||0)+(d.setsubiIn||0)-(d.setsubiOut||0);
+  st('ksKoichinEnd', koichinEnd);
+  st('ksSetsubiEnd', setsubiEnd);
+
+  // ---- 積立金の上限案内 ----
+  const lim = reserveLimits(fy);
+  const koichinLimEl = document.getElementById('ksKoichinLimit');
+  if(koichinLimEl){
+    if(!lim.koichin.years.length){
+      koichinLimEl.className = 'banner warn';
+      koichinLimEl.innerHTML = 'ℹ 工賃変動積立金の上限は<b>過去3年間の平均賃金・工賃</b>から計算しますが、まだ過去のデータがありません。データが増えると自動で計算されます。';
+    }else{
+      const over = koichinEnd > lim.koichin.totalLimit + 0.5 || (d.koichinIn||0) > lim.koichin.yearLimit + 0.5;
+      koichinLimEl.className = 'banner ' + (over?'warn':'info');
+      koichinLimEl.innerHTML = `ℹ 現時点の上限（過去${lim.koichin.years.length}年間の平均${yen(lim.koichin.avg)}から算出）：
+        <b>年間の積立は${yen(lim.koichin.yearLimit)}まで</b>／<b>残高は${yen(lim.koichin.totalLimit)}まで</b>`
+        + (over ? '<br>⚠ 現在の入力は上限を超えています。' : '');
+    }
+  }
+  const setsubiLimEl = document.getElementById('ksSetsubiLimit');
+  if(setsubiLimEl){
+    const over = (d.setsubiIn||0) > lim.setsubi.yearLimit + 0.5;
+    setsubiLimEl.className = 'banner ' + (over?'warn':'info');
+    setsubiLimEl.innerHTML = `ℹ 現時点の上限（当期の就労支援事業収入${yen(lim.setsubi.income)}から算出）：
+      <b>年間の積立は${yen(lim.setsubi.yearLimit)}まで</b>`
+      + (over ? '<br>⚠ 現在の入力は上限を超えています。' : '')
+      + '<br><span style="font-size:12px">※ 残高の上限（資産取得価額の75%以内）は、資産の取得価額を把握していないため計算できません。別途ご確認ください。</span>';
+  }
 
   const officeLine = (DB.settings.officeName||'').trim() ? DB.settings.officeName.trim()+'　' : '';
   document.getElementById('ksPeriod1').textContent = officeLine + periodLabel(fy);
