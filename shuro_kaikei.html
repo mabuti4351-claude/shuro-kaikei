@@ -585,6 +585,10 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
     <div class="card">
       <h2>🧾 費目（経費の種類）</h2>
+      <p class="hint">ここは<b>手入力で使う費目</b>の表です。<b>TKCから取り込む科目は、ここで追加しなくて大丈夫です</b>
+        （PDFを読み込むと自動で増えます）。<br>
+        「①生産活動が負担する割合」は<b>下の「TKCの科目一覧」と連動</b>しているので、どちらで変えても同じです。
+        <button class="btn sub" style="padding:3px 10px;font-size:12px" onclick="jumpToTkc()">TKCの科目一覧へ ↓</button></p>
       <div class="tablewrap"><table id="setCostTable"></table></div>
       <div class="row" style="margin-top:12px">
         <input type="text" id="newCostName" placeholder="新しい費目の名前" style="max-width:220px">
@@ -645,7 +649,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
       <p class="hint">CSVの列は「日付, 摘要, 収入, 支出, 勘定科目1, 勘定科目2, 入金日」。今のExcelからそのまま貼り付けられます。</p>
 
-      <h3>🏢 会計ソフト（TKC）のPDFから経費を取り込む</h3>
+      <h3 id="tkcSection">🏢 会計ソフト（TKC）のPDFから経費を取り込む</h3>
       <p class="hint">TKCの「<b>部門別科目残高推移表</b>」のPDFをそのまま選ぶだけで、決めておいた科目の
         <b>月ごとの金額</b>を「共通（あとで分ける）」の経費として登録します。<br>
         取り込んだあとは、費目ごとの按分先で作業に分けてください。<b>同じ月を入れ直しても二重にはなりません</b>（上書きされます）。</p>
@@ -2844,7 +2848,18 @@ function updCostProd(id, v){
   }else{
     c.prod = Math.max(0, Math.min(100, +v||0));
   }
+  syncTkcProd(c);   // TKCの科目一覧にも反映（どちらの表で変えても同じになるように）
   saveMaster(); renderAll();
+}
+/** 費目の表で変えた按分を、TKCの科目一覧にも反映する */
+function syncTkcProd(c){
+  const a = (DB.settings.tkcAccounts||[]).find(x=>x.name===c.name && x.kind!=='welfare');
+  if(a && a.kind!=='skip') a.prod = c.prod;
+}
+/** TKCの科目一覧までスクロールする */
+function jumpToTkc(){
+  const el = document.getElementById('tkcSection');
+  if(el){ el.scrollIntoView({behavior:'smooth', block:'start'}); }
 }
 
 function addPreset(){
