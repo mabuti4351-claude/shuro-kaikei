@@ -663,6 +663,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <input type="file" id="tkcFile" accept=".pdf" style="display:none" onchange="importTkcPdf(event)">
       </div>
       <p class="hint" id="tkcStatus"></p>
+      <div id="tkcCheckBox"></div>
 
       <h3>💾 まるごとバックアップ</h3>
       <div class="row">
@@ -3191,7 +3192,8 @@ function reiwaToYear(n){ return 2018 + n; }
 
 /**
  * 1ページから、指定した科目コードの月別金額を読み取る。
- * @returns {{cols:{y:number,m:number}[], rows:Object}} cols=月の列、rows[コード]=月ごとの金額
+ * あわせて、そのページにある科目をすべて拾う（取り込み漏れの確認に使う）。
+ * @returns {{cols:Object[], rows:Object, all:Object[]}}
  */
 function parseTkcPage(words, codes){
   // 見出しの「8年 2月」から、月の列とその横位置を作る
@@ -3207,21 +3209,89 @@ function parseTkcPage(words, codes){
   // 列の幅（＝見出しの間隔）の半分を、その列とみなす範囲にする
   const half = (cols[1].x - cols[0].x) / 2;
 
-  const rows = {};
-  codes.forEach(code=>{
-    const hit = words.find(w=>w.s===code) ||
-                words.find(w=>new RegExp('(^|\\s)'+code+'$').test(w.s));
-    if(!hit) return;
-    // 同じ高さで、科目コードより右にある語だけを見る
-    const line = words.filter(w=>Math.abs(w.y-hit.y)<3 && w.x>hit.x).sort((a,b)=>a.x-b.x);
-    rows[code] = cols.map(col=>{
+  /** その科目コードの語から、月ごとの金額を読む */
+  const readVals = hit => {
+    // 同じ高さで、科目コードより右にある語だけを見る。
+    // 前年比％（「58.4」のような小数）は金額ではないので外す。
+    // ％は右そろえで、桁が短いと隣の月の列にはみ出すため、これを外さないと
+    // 金額の代わりに拾ってしまい、その月が0円になる。
+    const line = words.filter(w=>Math.abs(w.y-hit.y)<3 && w.x>hit.x)
+                      .filter(w=>!/^\d+\.\d*$/.test(w.s))
+                      .sort((a,b)=>a.x-b.x);
+    return cols.map(col=>{
       // その列の範囲でいちばん左の語が金額。右隣の前年比％は使わない
       const first = line.find(w=>w.x>=col.x-half && w.x<col.x+half);
       const num = first ? String(first.s).match(/^-?[\d,]+/) : null;
       return num ? parseInt(num[0].replace(/,/g,''),10) : null;
     });
+  };
+
+  const rows = {};
+  codes.forEach(code=>{
+    const hit = words.find(w=>w.s===code) ||
+                words.find(w=>new RegExp('(^|\\s)'+code+'$').test(w.s));
+    if(hit) rows[code] = readVals(hit);
   });
-  return { cols, rows };
+
+  // ページ上の科目をすべて拾う（取り込み漏れの確認用）。
+  // 内訳科目（6219Aなど）は親科目に含まれ二重になるので、4桁ちょうどのものだけ。
+  const all = [];
+  words.filter(w=>/^\d{4}$/.test(w.s)).forEach(hit=>{
+    // 同じ高さで左にある文字が科目名
+    const label = words.filter(w=>Math.abs(w.y-hit.y)<3 && w.x<hit.x)
+                       .sort((a,b)=>a.x-b.x).map(w=>w.s).join('').trim();
+    all.push({ code:hit.s, label, vals:readVals(hit) });
+  });
+  return { cols, rows, all };
+}
+/* 検算：TKCの費用のうち、アプリが拾えている分・拾っていない分を出す。
+   利用者工賃はアプリで別に管理しているので、未登録あつかいにはしない。 */
+const TKC_WAGE_CODES = ['6311'];
+
+function tkcCoverage(all){
+  const taken = new Set(tkcAccounts().filter(a=>a.kind!=='welfare').map(a=>a.code));
+  const sum = v => v.reduce((s,x)=>s+(x||0), 0);
+  const out = { total:0, taken:0, wage:0, missing:[] };
+  const seen = new Set();
+  all.forEach(r=>{
+    if(!/^6\d{3}$/.test(r.code) || seen.has(r.code)) return;  // 費用科目だけ・重複ページ対策
+    seen.add(r.code);
+    const amt = sum(r.vals);
+    out.total += amt;
+    if(TKC_WAGE_CODES.includes(r.code)) out.wage += amt;
+    else if(taken.has(r.code)) out.taken += amt;
+    else { out.missing.push({code:r.code, label:r.label, amt}); }
+  });
+  out.missing.sort((a,b)=>b.amt-a.amt);
+  return out;
+}
+/** 検算の結果をHTMLにする */
+function tkcCoverageHtml(cv, months){
+  if(!cv || !cv.total) return '';
+  const pct = v => cv.total ? (v/cv.total*100).toFixed(1)+'%' : '—';
+  const miss = cv.missing.reduce((s,m)=>s+m.amt,0);
+  let h = `<div style="margin-top:14px;padding-top:12px;border-top:1px dashed var(--line)">
+    <b>📐 取り込み漏れの確認</b>
+    <p class="hint" style="margin:6px 0">このPDFに載っているこの部門の費用${months?`（${months}ヶ月分）`:''}のうち、
+      アプリが拾っている割合です。<b>TKCの中だけで比べている</b>ので、発生主義と現金主義の違いは関係ありません。</p>
+    <table class="tbl"><tbody>
+      <tr><td style="text-align:left">TKCの費用 合計</td><td style="text-align:right">${yen(cv.total)}</td><td style="text-align:right">100%</td></tr>
+      <tr><td style="text-align:left">　取り込む科目</td><td style="text-align:right">${yen(cv.taken)}</td><td style="text-align:right">${pct(cv.taken)}</td></tr>`;
+  if(cv.wage) h += `<tr><td style="text-align:left">　利用者工賃（アプリで別に管理）</td><td style="text-align:right">${yen(cv.wage)}</td><td style="text-align:right">${pct(cv.wage)}</td></tr>`;
+  h += `<tr><td style="text-align:left"><b>　取り込まない科目</b></td><td style="text-align:right"><b>${yen(miss)}</b></td><td style="text-align:right"><b>${pct(miss)}</b></td></tr>
+    </tbody></table>`;
+  if(cv.missing.length){
+    h += `<p class="hint" style="margin:8px 0 4px">取り込まない科目の内訳です。生産活動の経費にすべきものがあれば、
+      科目一覧に追加してください。<b>意識して外している</b>のであれば、このままで問題ありません。</p>
+      <table class="tbl"><tbody>`;
+    cv.missing.forEach(m=>{
+      h += `<tr><td style="text-align:left">${esc(m.code)} ${esc(m.label)}</td><td style="text-align:right">${yen(m.amt)}</td></tr>`;
+    });
+    h += `</tbody></table>`;
+  }else{
+    h += `<p class="hint" style="margin:8px 0 0">取り込んでいない費用の科目はありません。</p>`;
+  }
+  return h + `</div>`;
 }
 
 let _tkcPending = null;
@@ -3256,8 +3326,9 @@ async function importTkcPdf(ev){
       const parsed = parseTkcPage(words, accts.map(a=>a.code));
       if(!parsed) continue;
       // 1部門が複数ページに分かれるので、科目が取れたページの結果を合わせる
-      if(!found) found = { deptName, cols:parsed.cols, rows:{} };
+      if(!found) found = { deptName, cols:parsed.cols, rows:{}, all:[] };
       Object.keys(parsed.rows).forEach(c=>{ if(!found.rows[c]) found.rows[c]=parsed.rows[c]; });
+      found.all = found.all.concat(parsed.all||[]);
     }
     if(!found){ st.textContent=''; alert(`部門コード「${dept}」のページが見つかりませんでした。\n設定の部門コードと、PDFの「部門：」の数字が合っているか確かめてください。`); return; }
 
@@ -3275,7 +3346,8 @@ async function importTkcPdf(ev){
     });
     if(!list.length && !welfare.length){ st.textContent=''; alert('金額を読み取れませんでした。PDFの形式が違うかもしれません。'); return; }
 
-    _tkcPending = { dept, deptName:found.deptName, list, welfare };
+    _tkcPending = { dept, deptName:found.deptName, list, welfare,
+                    cv: tkcCoverage(found.all), months: found.cols.length };
     showTkcPreview();
     st.textContent = '';
   }catch(err){
@@ -3304,9 +3376,9 @@ function showTkcPreview(){
   });
   document.getElementById('tkcPreview').innerHTML = h + `</tbody>`;
   const dup = p.list.filter(r=>DB.entries.some(e=>e.tkc===tkcKey(p.dept,r))).length;
-  document.getElementById('tkcDup').innerHTML = dup
+  document.getElementById('tkcDup').innerHTML = (dup
     ? `※ このうち <b>${dup}件</b> は前に取り込んだ分なので、二重にはならず<b>新しい金額に置き換わります</b>。`
-    : '';
+    : '') + tkcCoverageHtml(p.cv, p.months);
   document.getElementById('tkcModal').classList.add('open');
 }
 /** 同じ部門・科目・月なら同じ鍵。入れ直したとき二重にしないために使う */
@@ -3345,6 +3417,8 @@ async function commitTkcImport(){
       ts: new Date().toISOString()
     });
   });
+  // あとから設定画面で見返せるように、検算の結果を残しておく
+  DB.settings.tkcCheck = p.cv ? {at:todayISO(), dept:p.dept, months:p.months, cv:p.cv} : null;
   closeModal('tkcModal');
   await saveMaster();
   await putEntries(list);
@@ -3381,6 +3455,14 @@ function renderTkcTable(){
     </tr>`;
   });
   el.innerHTML = h + `</tbody>`;
+
+  // 前回の取り込みでの「取り込み漏れの確認」
+  const box = document.getElementById('tkcCheckBox');
+  const ck = DB.settings.tkcCheck;
+  box.innerHTML = (ck && ck.cv)
+    ? `<p class="hint" style="margin-bottom:0">前回の取り込み（${esc(ck.at)}・部門${esc(ck.dept)}）の結果です。</p>`
+      + tkcCoverageHtml(ck.cv, ck.months)
+    : '';
 }
 function updTkcAccount(i, k, v){ const a=tkcAccounts()[i]; if(a){ a[k]=v.trim(); saveMaster(); } }
 /** よく使う科目をまとめて登録する（すでにあるコードは飛ばす） */
