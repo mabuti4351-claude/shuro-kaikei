@@ -394,6 +394,9 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
             <option value="out">経費</option><option value="wage">利用者工賃</option>
           </select>
         </div>
+        <div class="grow" style="max-width:180px">
+          <label class="lbl">費目</label><select id="lsCost" onchange="renderList()"></select>
+        </div>
         <div class="grow">
           <label class="lbl">メモで探す</label>
           <input type="text" id="lsQ" oninput="renderList()" placeholder="例) 弁当">
@@ -648,6 +651,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <p class="hint">PDFの左上「部門：<b>030</b> ジョブきらめき」の数字です。一度だけ入れておけば、
         全部門が入ったPDFでも<b>この事業所のページだけ</b>を自動で見つけます。</p>
       <table class="tbl" id="setTkcTable" style="margin-top:10px"></table>
+      <div id="tkcDupWarn"></div>
       <div class="row" style="margin-top:8px">
         <input type="text" id="newTkcCode" placeholder="科目コード（例：6229）" style="max-width:180px">
         <input type="text" id="newTkcName" placeholder="費目名（例：車両費）" style="max-width:200px">
@@ -663,6 +667,9 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <input type="file" id="tkcFile" accept=".pdf" style="display:none" onchange="importTkcPdf(event)">
       </div>
       <p class="hint" id="tkcStatus"></p>
+      <p class="hint">💡 <b>福祉事業と生産活動の按分は、この下の「費目」の表</b>にある
+        「①生産活動が負担する割合」で決めます（費目ごとに、全額／収入比で自動／手入力％）。
+        取り込んだ費目は、はじめは<b>収入比で自動</b>になっています。</p>
       <div id="tkcCheckBox"></div>
 
       <h3>💾 まるごとバックアップ</h3>
@@ -2389,6 +2396,9 @@ function renderListSelectors(){
   const js=document.getElementById('lsJob'), keepJ=js.value;
   js.innerHTML = '<option value="">すべての作業</option>' + allJobs().map(j=>`<option value="${j.id}">${esc(j.name)}</option>`).join('');
   js.value = keepJ;
+  const cs=document.getElementById('lsCost'), keepC=cs.value;
+  cs.innerHTML = '<option value="">すべての費目</option>' + DB.costs.map(c=>`<option value="${c.id}">${esc(c.name)}</option>`).join('');
+  cs.value = keepC;
 }
 
 function filteredEntries(){
@@ -2396,12 +2406,14 @@ function filteredEntries(){
   const m=document.getElementById('lsMonth').value;
   const j=document.getElementById('lsJob').value;
   const t=document.getElementById('lsType').value;
+  const c=document.getElementById('lsCost').value;
   const q=(document.getElementById('lsQ').value||'').trim();
   return DB.entries.filter(e=>{
     if(fy && fyOf(e.d)!==+fy) return false;
     if(m && e.d.slice(0,7)!==m) return false;
     if(j && e.j!==j) return false;
     if(t && e.t!==t) return false;
+    if(c && e.c!==c) return false;
     if(q && !((e.m||'').includes(q) || jobName(e.j).includes(q))) return false;
     return true;
   }).sort((a,b)=> a.d.localeCompare(b.d) || (a.ts||'').localeCompare(b.ts||''));
@@ -3479,6 +3491,21 @@ function renderTkcTable(){
     </tr>`;
   });
   el.innerHTML = h + `</tbody>`;
+
+  // 親科目（6219）と内訳科目（6219A）を両方入れると二重計上になるので知らせる
+  const codes = list.filter(a=>a.kind!=='welfare').map(a=>(a.code||'').trim()).filter(Boolean);
+  const dup = [];
+  codes.forEach(child=>{
+    codes.forEach(parent=>{
+      if(child!==parent && child.startsWith(parent)) dup.push(`${parent} と ${child}`);
+    });
+  });
+  const warn = document.getElementById('tkcDupWarn');
+  warn.innerHTML = dup.length
+    ? `<div class="banner warn">⚠ <b>${esc([...new Set(dup)].join('、'))}</b> が両方入っています。
+       内訳の科目は親の科目に含まれているので、このままだと<b>二重に計上されます</b>。
+       どちらか一方を削除してください。</div>`
+    : '';
 
   // 前回の取り込みでの「取り込み漏れの確認」
   const box = document.getElementById('tkcCheckBox');
