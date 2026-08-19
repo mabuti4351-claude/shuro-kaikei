@@ -652,7 +652,12 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <input type="text" id="newTkcCode" placeholder="科目コード（例：6229）" style="max-width:180px">
         <input type="text" id="newTkcName" placeholder="費目名（例：車両費）" style="max-width:200px">
         <button class="btn sub" onclick="addTkcAccount()">＋ 科目を追加</button>
+        <button class="btn sub" onclick="addSuggestedTkc()">📋 よく使う科目をまとめて入れる</button>
       </div>
+      <p class="hint">「まとめて入れる」では、給与・賞与・法定福利費・水道光熱費・通信費・賃借料などの<b>共通経費</b>と、
+        食材費・委託費などの<b>生産活動だけの経費</b>、それに按分の計算に使う<b>訓練等給付費収入</b>が入ります。<br>
+        電気料(6219A)のような<b>内訳の科目は入れません</b>。親の科目（6219 水道光熱費）に含まれているので、入れると二重になります。
+        利用者工賃もアプリで別に管理しているため入れません。</p>
       <div class="row" style="margin-top:14px">
         <button class="btn" onclick="document.getElementById('tkcFile').click()">🏢 TKCのPDFを読み込む</button>
         <input type="file" id="tkcFile" accept=".pdf" style="display:none" onchange="importTkcPdf(event)">
@@ -872,12 +877,61 @@ let DB = { entries: [], jobs: [], costs: [], settings: {} };
 function defaultSettings(){
   return { fyStart:10, alloc:'sales', allocRatio:{},
            mode:'simple', stdJobBreakdown:true, fyData:{}, officeName:'',
-           tkcDept:'', tkcAccounts:TKC_DEFAULT_ACCOUNTS.slice() };
+           tkcDept:'', tkcAccounts:TKC_DEFAULT_ACCOUNTS.slice(), welfareIncome:{} };
+}
+/* ---- 1段階目の按分：共通経費を「福祉事業」と「生産活動」に分ける ----
+   費目ごとに c.prod を持つ。'all'=全額が生産活動 / 'auto'=収入比 / 数値=手入力の% */
+/** 福祉事業収入（訓練等給付費）。TKCのPDFから取り込んだ月ごとの額 */
+function welfareIncome(months){
+  const w = DB.settings.welfareIncome || {};
+  return months.reduce((s,m)=>s+(+w[m]||0), 0);
+}
+/** その費目のうち、生産活動が負担する割合（0〜1） */
+function prodRatio(costId, prodIncome, welfare){
+  const c = DB.costs.find(x=>x.id===costId);
+  const v = c ? c.prod : 'all';
+  if(v==null || v==='all') return 1;
+  if(v==='auto'){
+    const t = prodIncome + welfare;
+    return t>0 ? prodIncome/t : 1;   // 収入が分からないうちは全額を生産活動にしておく
+  }
+  const n = +v;
+  return isFinite(n) ? Math.max(0, Math.min(100, n))/100 : 1;
+}
+/** 今の年度で「収入比で自動」にしたときの割合。分からないときは null */
+function currentProdRatio(){
+  const months = fyMonths(fyOf(todayISO()));
+  const set = new Set(months);
+  const inc = DB.entries.filter(e=>e.t==='in' && set.has(e.d.slice(0,7))).reduce((s,e)=>s+e.a,0);
+  const wel = welfareIncome(months);
+  return (inc+wel) > 0 ? inc/(inc+wel) : null;
 }
 /* TKCの「部門別科目残高推移表」から取り込む科目。コードは会計ソフトの勘定科目コード。 */
 const TKC_DEFAULT_ACCOUNTS = [
-  {code:'6111', name:'職員給与'},
-  {code:'6219', name:'水道光熱費'}
+  {code:'4113A', name:'訓練等給付費収入', kind:'welfare'},
+  {code:'6111', name:'職員給与', prod:'auto'},
+  {code:'6219', name:'水道光熱費', prod:'auto'}
+];
+/* 「おすすめの科目をまとめて入れる」で登録される科目。
+   prod: 'auto'=福祉と生産で収入比按分 / 'all'=全額が生産活動
+   ※ 電気料(6219A)などの内訳科目は、親科目(6219)に含まれるので入れない（二重計上になる）
+   ※ 利用者工賃(6311)はアプリで別に管理しているので入れない */
+const TKC_SUGGESTED = [
+  {code:'4113A', name:'訓練等給付費収入', kind:'welfare'},
+  {code:'6111', name:'職員給与',        prod:'auto'},
+  {code:'6213', name:'従業員賞与',      prod:'auto'},
+  {code:'6312', name:'法定福利費',      prod:'auto'},
+  {code:'6226', name:'福利厚生費',      prod:'auto'},
+  {code:'6214', name:'減価償却費',      prod:'auto'},
+  {code:'6217', name:'事務用消耗品費',   prod:'auto'},
+  {code:'6218', name:'通信費',          prod:'auto'},
+  {code:'6219', name:'水道光熱費',      prod:'auto'},
+  {code:'6225', name:'備品消耗品費',     prod:'auto'},
+  {code:'6227', name:'管理諸費',        prod:'auto'},
+  {code:'6231', name:'雑費',           prod:'auto'},
+  {code:'6234', name:'賃借料',          prod:'auto'},
+  {code:'6116', name:'食材費',          prod:'all'},
+  {code:'6232', name:'委託費',          prod:'all'}
 ];
 function tkcAccounts(){
   if(!Array.isArray(DB.settings.tkcAccounts)) DB.settings.tkcAccounts = TKC_DEFAULT_ACCOUNTS.slice();
@@ -1216,6 +1270,8 @@ function calc(months){
   DB.jobs.forEach(j=>{ sales[j.id]=0; direct[j.id]=0; });
   months.forEach(m=>{ salesMonth[m]=0; costMonth[m]=0; });
 
+  // 共通費は、生産活動の収入が確定してからでないと福祉事業と分けられないので後回しにする
+  const commonEntries = [];
   rows.forEach(e=>{
     const m = e.d.slice(0,7);
     if(e.t==='in'){
@@ -1223,18 +1279,26 @@ function calc(months){
       if(sales[e.j]!==undefined) sales[e.j]+=e.a; else { sales[e.j]=(sales[e.j]||0)+e.a; }
       salesMonth[m]=(salesMonth[m]||0)+e.a;
     }else if(e.t==='out'){
-      cost += e.a; costMonth[m]=(costMonth[m]||0)+e.a;
-      if(e.j===COMMON_JOB.id || !e.j){
-        // 明細ごとの按分先指定（業者単位）があればそれを優先し、無ければ費目の設定を使う
-        const t = entryTargets(e);
-        const k = (e.c||'__none') + '|' + t.join(',');
-        if(!commonByCost[k]) commonByCost[k] = {amt:0, targets:t};
-        commonByCost[k].amt += e.a;
-      }
-      else direct[e.j]=(direct[e.j]||0)+e.a;
+      if(e.j===COMMON_JOB.id || !e.j){ commonEntries.push(e); }
+      else { cost += e.a; costMonth[m]=(costMonth[m]||0)+e.a; direct[e.j]=(direct[e.j]||0)+e.a; }
     }else if(e.t==='wage'){
       wage += e.a; costMonth[m]=(costMonth[m]||0)+e.a;
     }
+  });
+
+  // ① 福祉事業と生産活動に分ける。生産活動の分だけが、このあと作業別に按分される。
+  const welfare = welfareIncome(months);
+  let welfareCut = 0;
+  commonEntries.forEach(e=>{
+    const m = e.d.slice(0,7);
+    const prodAmt = e.a * prodRatio(e.c, income, welfare);
+    welfareCut += e.a - prodAmt;
+    cost += prodAmt; costMonth[m]=(costMonth[m]||0)+prodAmt;
+    // 明細ごとの按分先指定（業者単位）があればそれを優先し、無ければ費目の設定を使う
+    const t = entryTargets(e);
+    const k = (e.c||'__none') + '|' + t.join(',');
+    if(!commonByCost[k]) commonByCost[k] = {amt:0, targets:t};
+    commonByCost[k].amt += prodAmt;
   });
   const common = Object.values(commonByCost).reduce((s,v)=>s+v.amt,0);
 
@@ -1265,6 +1329,7 @@ function calc(months){
   }).filter(r=>r.sales||r.direct||r.alloc);
 
   return {rows, income, cost, wage, common, allocated, allocatedSum, unallocated,
+          welfare, welfareCut,
           sales, direct, salesMonth, costMonth, jobRows, balance: income-cost-wage};
 }
 
@@ -1338,7 +1403,8 @@ function kpiHtml(c){
   return `
   <div class="kpi in"><div class="k">売上（収入）</div><div class="v">${yen(c.income)}</div></div>
   <div class="kpi out"><div class="k">経費（材料など）</div><div class="v">${yen(c.cost)}</div>
-    ${c.common?`<div class="s">うち共通 ${yen(c.common)}</div>`:''}</div>
+    ${c.common?`<div class="s">うち共通 ${yen(c.common)}</div>`:''}
+    ${Math.abs(c.welfareCut||0)>=1?`<div class="s">福祉事業へ ${yen(c.welfareCut)} を除いた額</div>`:''}</div>
   <div class="kpi wage"><div class="k">利用者工賃</div><div class="v">${yen(c.wage)}</div></div>
   <div class="kpi bal ${c.balance<0?'neg':''}"><div class="k">差引（収支）</div><div class="v">${yen(c.balance)}</div>
     <div class="s">売上 − 経費 − 工賃</div></div>`;
@@ -1841,8 +1907,17 @@ function calcStd(fy){
       a.commonByCost[k].amt += amt;
     }
   };
+  // ① 共通費はまず福祉事業と生産活動に分け、生産活動の分だけを表4に計上する
+  const welfare = welfareIncome(months);
+  let welfareCut = 0;
   rows.forEach(e=>{
-    if(e.t==='out'){ const s=stdOf(e.c); put(s.grp, s.std, e.a, e.j, entryTargets(e)); }
+    if(e.t==='out'){
+      const s = stdOf(e.c);
+      const isDirect = e.j && e.j!==COMMON_JOB.id && sales[e.j]!==undefined;
+      let a = e.a;
+      if(!isDirect){ a = e.a * prodRatio(e.c, income, welfare); welfareCut += e.a - a; }
+      put(s.grp, s.std, a, e.j, entryTargets(e));
+    }
     else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null, jid); } // 工賃は全作業へ売上比で按分
   });
 
@@ -1917,7 +1992,8 @@ function calcStd(fy){
           keihiItems, currentKeihi, currentKeihiJ,
           soHiyou, soHiyouJ, jigyohi, jigyohiJ,
           shiire, shiireJ, genka, genkaJ, balance, balanceJ,
-          wagePaid, costExWage, tsumitate, wageDue};
+          wagePaid, costExWage, tsumitate, wageDue,
+          welfare, welfareCut};
 }
 
 /**
@@ -2533,11 +2609,24 @@ function renderSettings(){
       ${STD_GROUPS.map(g=>`<option ${x.grp===g?'selected':''}>${g}</option>`).join('')}</select>`;
   const stdSel = x => `<select onchange="updCostStd('${x.id}','std',this.value)" style="padding:6px">
       ${(STD_ITEMS[x.grp]||STD_ITEMS['経費']).map(s=>`<option ${x.std===s?'selected':''}>${esc(s)}</option>`).join('')}</select>`;
-  let c=`<thead><tr><th style="text-align:left">費目名</th><th style="text-align:left">共通のときの按分先</th>${isStd()?'<th>区分</th><th>基準の勘定科目（表4）</th>':''}<th>使用</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  const autoR = currentProdRatio();
+  const prodSel = x => {
+    const v = (x.prod==null) ? 'all' : x.prod;
+    const isNum = v!=='all' && v!=='auto';
+    return `<select onchange="updCostProd('${x.id}',this.value)" style="padding:6px">
+        <option value="all"  ${v==='all' ?'selected':''}>全額（生産活動だけの経費）</option>
+        <option value="auto" ${v==='auto'?'selected':''}>収入比で自動${autoR!=null?`（${(autoR*100).toFixed(1)}%）`:''}</option>
+        <option value="manual" ${isNum?'selected':''}>手入力…</option>
+      </select>` + (isNum
+        ? ` <input type="number" min="0" max="100" step="0.1" value="${+v}" onchange="updCostProd('${x.id}',this.value)" style="padding:6px;width:70px">%`
+        : '');
+  };
+  let c=`<thead><tr><th style="text-align:left">費目名</th><th style="text-align:left">①生産活動が負担する割合</th><th style="text-align:left">②共通のときの按分先</th>${isStd()?'<th>区分</th><th>基準の勘定科目（表4）</th>':''}<th>使用</th><th class="noprint">操作</th></tr></thead><tbody>`;
   DB.costs.forEach(x=>{
     const all = !x.jobs || !x.jobs.length;
     c+=`<tr>
       <td style="text-align:left"><input type="text" value="${esc(x.name)}" onchange="renameCost('${x.id}',this.value)" style="padding:6px"></td>
+      <td style="text-align:left">${prodSel(x)}</td>
       <td style="text-align:left">
         <button class="btn sub" style="padding:5px 10px;font-size:12px;text-align:left;max-width:100%"
           onclick="openCostJobs('${x.id}')" title="この費目を共通にしたとき、どの作業に分けるかを決めます">
@@ -2674,6 +2763,19 @@ function updCostStd(id,key,v){
   if(key==='grp' && !(STD_ITEMS[v]||[]).includes(c.std)) c.std = STD_ITEMS[v][0];
   saveMaster(); renderAll();
 }
+/** ①生産活動が負担する割合を変える。'manual' を選んだときは今の割合を初期値にする */
+function updCostProd(id, v){
+  const c=DB.costs.find(x=>x.id===id); if(!c) return;
+  if(v==='manual'){
+    const r = currentProdRatio();
+    c.prod = c.prod==='auto' && r!=null ? +(r*100).toFixed(1) : 50;
+  }else if(v==='all' || v==='auto'){
+    c.prod = v;
+  }else{
+    c.prod = Math.max(0, Math.min(100, +v||0));
+  }
+  saveMaster(); renderAll();
+}
 
 function addPreset(){
   const n=document.getElementById('newPresetName').value.trim();
@@ -2754,7 +2856,12 @@ function mapJob(k1,k2){
 const COST_STD_GUESS = {
   '職員給与':{grp:'労務費', std:'就労支援事業指導員等給与'},
   '給与手当':{grp:'労務費', std:'就労支援事業指導員等給与'},
+  '従業員賞与':{grp:'労務費', std:'就労支援事業指導員等給与'},
   '法定福利費':{grp:'労務費', std:'法定福利費'},
+  '委託費':{grp:'外注加工費', std:'外注加工費'},
+  '通信費':{grp:'経費', std:'通信運搬費'},
+  '事務用消耗品費':{grp:'経費', std:'消耗品費'},
+  '備品消耗品費':{grp:'経費', std:'器具什器費'},
   '食材費':{grp:'材料費', std:'当期材料仕入高'},
   '材料費':{grp:'材料費', std:'当期材料仕入高'},
   '仕入':{grp:'商品仕入', std:'当期就労支援事業仕入高'},
@@ -3155,19 +3262,20 @@ async function importTkcPdf(ev){
     if(!found){ st.textContent=''; alert(`部門コード「${dept}」のページが見つかりませんでした。\n設定の部門コードと、PDFの「部門：」の数字が合っているか確かめてください。`); return; }
 
     // 取り込む行を組み立てる
-    const list = [];
+    const list = [], welfare = [];
     accts.forEach(a=>{
       const vals = found.rows[a.code];
       if(!vals) return;
       found.cols.forEach((col,i)=>{
         const v = vals[i];
         if(v==null || !col.year) return;
-        list.push({ code:a.code, name:a.name, year:col.year, month:col.m, amount:v });
+        const row = { code:a.code, name:a.name, year:col.year, month:col.m, amount:v };
+        if(a.kind==='welfare') welfare.push(row); else list.push(row);
       });
     });
-    if(!list.length){ st.textContent=''; alert('金額を読み取れませんでした。PDFの形式が違うかもしれません。'); return; }
+    if(!list.length && !welfare.length){ st.textContent=''; alert('金額を読み取れませんでした。PDFの形式が違うかもしれません。'); return; }
 
-    _tkcPending = { dept, deptName:found.deptName, list };
+    _tkcPending = { dept, deptName:found.deptName, list, welfare };
     showTkcPreview();
     st.textContent = '';
   }catch(err){
@@ -3181,8 +3289,14 @@ async function importTkcPdf(ev){
 function showTkcPreview(){
   const p = _tkcPending;
   document.getElementById('tkcHead').innerHTML =
-    `部門 <b>${esc(p.dept)}</b> ${esc(p.deptName)} … <b>${p.list.length}件</b>を読み取りました。`;
+    `部門 <b>${esc(p.dept)}</b> ${esc(p.deptName)} … 経費 <b>${p.list.length}件</b>` +
+    (p.welfare.length ? `／福祉事業収入 <b>${p.welfare.length}ヶ月分</b>` : '') + `を読み取りました。`;
   let h = `<thead><tr><th style="text-align:left">年月</th><th style="text-align:left">費目</th><th>金額</th></tr></thead><tbody>`;
+  p.welfare.forEach(r=>{
+    h += `<tr style="background:rgba(0,0,0,.03)"><td style="text-align:left">${r.year}年${r.month}月</td>
+      <td style="text-align:left">${esc(r.name)}<span style="color:var(--sub);font-size:12px"> (${esc(r.code)}) ※按分の計算に使う収入</span></td>
+      <td style="text-align:right">${yen(r.amount)}</td></tr>`;
+  });
   p.list.forEach(r=>{
     h += `<tr><td style="text-align:left">${r.year}年${r.month}月</td>
       <td style="text-align:left">${esc(r.name)}<span style="color:var(--sub);font-size:12px"> (${esc(r.code)})</span></td>
@@ -3207,17 +3321,25 @@ async function commitTkcImport(){
   const p = _tkcPending; if(!p) return;
   const created = [];
   const list = [];
-  const removeIds = [];
+  // 福祉事業収入は明細ではなく、按分の計算に使う数字として月ごとに持つ
+  DB.settings.welfareIncome = DB.settings.welfareIncome || {};
+  p.welfare.forEach(r=>{
+    DB.settings.welfareIncome[`${r.year}-${String(r.month).padStart(2,'0')}`] = r.amount;
+  });
   p.list.forEach(r=>{
     const key = tkcKey(p.dept, r);
     const old = DB.entries.find(e=>e.tkc===key);
-    if(old) removeIds.push(old.id);
+    const cid = resolveCostId(r.name, '', created);
+    // 新しく作った費目には、科目の設定にある「生産活動が負担する割合」を入れておく
+    const acct = tkcAccounts().find(a=>a.code===r.code);
+    const cost = DB.costs.find(x=>x.id===cid);
+    if(cost && cost.prod==null) cost.prod = (acct && acct.prod) ? acct.prod : 'all';
     list.push({
       id: old ? old.id : genId(),
       d: monthEnd(r.year, r.month),
       t: 'out', a: r.amount,
       j: COMMON_JOB.id,
-      c: resolveCostId(r.name, '', created),
+      c: cid,
       m: `${r.name}（TKC ${r.year}年${r.month}月）`,
       p: '', tkc: key,
       ts: new Date().toISOString()
@@ -3228,6 +3350,7 @@ async function commitTkcImport(){
   await putEntries(list);
   _tkcPending = null;
   let msg = `${list.length}件を取り込みました`;
+  if(p.welfare.length) msg += `／福祉事業収入${p.welfare.length}ヶ月分`;
   if(created.length) msg += `（費目「${created.join('・')}」を追加）`;
   toast(msg);
   renderAll();
@@ -3243,19 +3366,34 @@ function renderTkcTable(){
   const el = document.getElementById('setTkcTable');
   if(!el) return;
   document.getElementById('setTkcDept').value = DB.settings.tkcDept||'';
-  let h = `<thead><tr><th style="text-align:left">科目コード</th><th style="text-align:left">アプリでの費目名</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  let h = `<thead><tr><th style="text-align:left">科目コード</th><th style="text-align:left">アプリでの費目名</th><th style="text-align:left">扱い</th><th class="noprint">操作</th></tr></thead><tbody>`;
   const list = tkcAccounts();
-  if(!list.length) h += `<tr><td colspan="3" style="text-align:center;color:var(--sub);padding:16px">科目がありません</td></tr>`;
+  if(!list.length) h += `<tr><td colspan="4" style="text-align:center;color:var(--sub);padding:16px">科目がありません</td></tr>`;
   list.forEach((a,i)=>{
     h += `<tr>
       <td style="text-align:left"><input type="text" value="${esc(a.code)}" onchange="updTkcAccount(${i},'code',this.value)" style="padding:6px;max-width:120px"></td>
       <td style="text-align:left"><input type="text" value="${esc(a.name)}" onchange="updTkcAccount(${i},'name',this.value)" style="padding:6px"></td>
+      <td style="text-align:left"><select onchange="updTkcAccount(${i},'kind',this.value)" style="padding:6px">
+        <option value="cost"    ${a.kind!=='welfare'?'selected':''}>経費として登録</option>
+        <option value="welfare" ${a.kind==='welfare'?'selected':''}>福祉事業収入（按分に使う）</option>
+      </select></td>
       <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delTkcAccount(${i})">削除</button></td>
     </tr>`;
   });
   el.innerHTML = h + `</tbody>`;
 }
 function updTkcAccount(i, k, v){ const a=tkcAccounts()[i]; if(a){ a[k]=v.trim(); saveMaster(); } }
+/** よく使う科目をまとめて登録する（すでにあるコードは飛ばす） */
+function addSuggestedTkc(){
+  const list = tkcAccounts();
+  const add = TKC_SUGGESTED.filter(s=>!list.some(a=>a.code===s.code));
+  if(!add.length){ alert('追加できる科目はありませんでした（すべて登録済みです）。'); return; }
+  const names = add.map(s=>`${s.code} ${s.name}`).join('\n');
+  if(!confirm(`次の${add.length}件を追加します。\n\n${names}\n\nいらないものは、あとで「削除」で消せます。`)) return;
+  add.forEach(s=>list.push(Object.assign({}, s)));
+  saveMaster(); renderTkcTable();
+  toast(`${add.length}件の科目を追加しました`);
+}
 function delTkcAccount(i){ tkcAccounts().splice(i,1); saveMaster(); renderTkcTable(); }
 function addTkcAccount(){
   const code = document.getElementById('newTkcCode').value.trim();
