@@ -3190,6 +3190,14 @@ async function pdfWords(page){
 /** 令和N年 → 西暦（令和1年=2019年） */
 function reiwaToYear(n){ return 2018 + n; }
 
+/** 部門コードの比較。「30」と入力されても PDFの「030」と同じとみなす */
+function sameDeptCode(a, b){
+  const n = s => String(s==null?'':s).replace(/[^\d]/g,'');
+  const x = n(a), y = n(b);
+  if(!x || !y) return false;
+  return parseInt(x,10) === parseInt(y,10);
+}
+
 /**
  * 1ページから、指定した科目コードの月別金額を読み取る。
  * あわせて、そのページにある科目をすべて拾う（取り込み漏れの確認に使う）。
@@ -3315,14 +3323,17 @@ async function importTkcPdf(ev){
 
     // 部門コードのページを探す（「部門： 030 ジョブきらめき」と入っている）
     let found = null;
+    const seenDepts = [];   // 見つからなかったときの案内に使う
     for(let p=1; p<=doc.numPages; p++){
       const words = await pdfWords(await doc.getPage(p));
       let code = null, deptName = '';
       for(const w of words){
-        const m = w.s.match(/門\s*[：:]\s*(\d{3})\s*(.*)$/);
+        const m = w.s.match(/門\s*[：:]\s*(\d{2,4})\s*(.*)$/);
         if(m){ code = m[1]; deptName = (m[2]||'').trim(); break; }
       }
-      if(code !== dept) continue;
+      if(!code) continue;
+      if(!seenDepts.some(d=>d.code===code)) seenDepts.push({code, name:deptName});
+      if(!sameDeptCode(code, dept)) continue;
       const parsed = parseTkcPage(words, accts.map(a=>a.code));
       if(!parsed) continue;
       // 1部門が複数ページに分かれるので、科目が取れたページの結果を合わせる
@@ -3330,7 +3341,15 @@ async function importTkcPdf(ev){
       Object.keys(parsed.rows).forEach(c=>{ if(!found.rows[c]) found.rows[c]=parsed.rows[c]; });
       found.all = found.all.concat(parsed.all||[]);
     }
-    if(!found){ st.textContent=''; alert(`部門コード「${dept}」のページが見つかりませんでした。\n設定の部門コードと、PDFの「部門：」の数字が合っているか確かめてください。`); return; }
+    if(!found){
+      st.textContent = '';
+      await new Promise(r=>setTimeout(r,0));   // 「読んでいます…」を消してから知らせる
+      const list = seenDepts.length
+        ? '\n\nこのPDFに入っている部門は次のとおりです。\n' + seenDepts.map(d=>`　${d.code}　${d.name}`).join('\n')
+        : '\n\nこのPDFからは部門が読み取れませんでした。「部門別科目残高推移表」のPDFか確かめてください。';
+      alert(`部門コード「${dept}」のページが見つかりませんでした。${list}`);
+      return;
+    }
 
     // 取り込む行を組み立てる
     const list = [], welfare = [];
@@ -3432,7 +3451,12 @@ async function commitTkcImport(){
 
 /* 設定画面：部門コードと科目の一覧 */
 function saveTkcDept(){
-  DB.settings.tkcDept = document.getElementById('setTkcDept').value.trim();
+  const el = document.getElementById('setTkcDept');
+  // 「30」と入れられても「030」に整える（PDFは3桁で印字されるため）
+  const digits = el.value.replace(/[^\d]/g,'');
+  const v = digits ? digits.padStart(3,'0') : '';
+  el.value = v;
+  DB.settings.tkcDept = v;
   saveMaster();
   toast('部門コードを保存しました');
 }
