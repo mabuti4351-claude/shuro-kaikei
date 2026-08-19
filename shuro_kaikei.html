@@ -408,6 +408,8 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <span class="hint" id="lsCount" style="margin:0"></span>
       </div>
       <p class="hint noprint" id="lsDelHint" style="display:none">絞り込んだ明細だけをまとめて消します。もとに戻せないので、先に「設定 → 💾 バックアップを保存」をおすすめします。</p>
+      <p class="hint noprint" id="lsDelGuide" style="display:none">💡 <b>費目や月などで絞り込むと、「まとめて消す」ボタンが出ます。</b>
+        うっかり全部消さないよう、絞り込んでいないときは出しません。</p>
     </div>
     <div class="card">
       <div class="tablewrap"><table id="lsTable"></table></div>
@@ -2528,9 +2530,11 @@ function renderList(){
       .some(id=>document.getElementById(id).value) ||
       (document.getElementById('lsQ').value||'').trim();
   const btn = document.getElementById('lsDelBtn'), hint = document.getElementById('lsDelHint');
+  const guide = document.getElementById('lsDelGuide');
   const show = filtered && list.length>0;
   btn.style.display = show ? '' : 'none';
   hint.style.display = show ? '' : 'none';
+  guide.style.display = (!show && DB.entries.length) ? '' : 'none';
   if(show) btn.textContent = `🗑 この ${list.length}件 をまとめて消す`;
 
   let h=`<thead><tr><th>日付</th><th style="text-align:left">摘要</th><th>作業</th><th>収入</th><th>支出</th><th>残高</th><th>入金日</th><th></th></tr></thead><tbody>`;
