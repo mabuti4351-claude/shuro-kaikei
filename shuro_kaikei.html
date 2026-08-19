@@ -559,6 +559,13 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
           <label style="cursor:pointer"><input type="checkbox" id="setJobBreakdown" onchange="onJobBreakdownChange()"> 帳票に作業種別ごとの列を出す</label>
         </div>
         <p class="hint">「多種少額の生産活動を行う等の理由により、作業種別ごとに区別することが困難な場合は、作業種別ごとの区分を省略できる」（表1〜4共通）とされています。省略する場合はチェックを外してください。</p>
+        <div class="row" style="margin-top:10px">
+          <label style="cursor:pointer"><input type="checkbox" id="setOwnNames" onchange="onOwnNamesChange()"> 表4の経費を、自社（TKC）の勘定科目名で出す</label>
+        </div>
+        <p class="hint">チェックを入れると、表4のⅣ経費が<b>「電気料」「委託費」など、ふだん使っている科目名</b>で並びます。
+          外すと様式どおりの科目名（福利厚生費・旅費交通費・器具什器費…の20項目）になります。<br>
+          運用ガイドラインp36に「勘定科目は…<b>それぞれが準拠する会計基準に基づく勘定科目に変更して差し支えありません</b>」とあります。
+          御社は有限会社で社会福祉法人会計基準に準拠していないため、自社の科目名で問題ありません。<b>様式に入るのは20項目まで</b>です。</p>
       </div>
     </div>
 
@@ -961,6 +968,11 @@ function fyData(fy){
   return DB.settings.fyData[fy];
 }
 function isStd(){ return DB.settings.mode==='standard'; }
+/** 表4の経費を、様式の科目名ではなく自社（TKC）の科目名で出すか。
+    ガイドラインp36「準拠する会計基準に基づく勘定科目に変更して差し支えありません」 */
+function ownNames(){ return DB.settings.stdOwnNames !== false; }
+/** 表4の経費に入る行数の上限（様式の行数） */
+const XLS_KEIHI_ROWS = 20;
 
 /* ============ 共通ユーティリティ ============ */
 function genId(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,7); }
@@ -1906,10 +1918,8 @@ function calcStd(fy){
   // 共通費は費目ごとに按分先が違うので、費目IDごとに分けて持つ
   // acc[grp][std] = {total, direct:{jobId:額}, commonByCost:{costId:額}}
   const acc = {};
-  const put = (grp,std,amt,jobId,targets)=>{
-    acc[grp] = acc[grp] || {};
-    acc[grp][std] = acc[grp][std] || {total:0, direct:{}, commonByCost:{}};
-    const a = acc[grp][std];
+  const accCost = {};   // 費目ごと（自社の科目名で出すときに使う）
+  const addTo_ = (a,amt,jobId,targets)=>{
     a.total += amt;
     if(jobId && jobId!==COMMON_JOB.id && sales[jobId]!==undefined) a.direct[jobId]=(a.direct[jobId]||0)+amt;
     else {
@@ -1917,6 +1927,16 @@ function calcStd(fy){
       const k = t.join(',');
       if(!a.commonByCost[k]) a.commonByCost[k] = {amt:0, targets:t};
       a.commonByCost[k].amt += amt;
+    }
+  };
+  const blankAcc = ()=>({total:0, direct:{}, commonByCost:{}});
+  const put = (grp,std,amt,jobId,targets,costId)=>{
+    acc[grp] = acc[grp] || {};
+    acc[grp][std] = acc[grp][std] || blankAcc();
+    addTo_(acc[grp][std], amt, jobId, targets);
+    if(costId){
+      accCost[costId] = accCost[costId] || blankAcc();
+      addTo_(accCost[costId], amt, jobId, targets);
     }
   };
   // ① 共通費はまず福祉事業と生産活動に分け、生産活動の分だけを表4に計上する
@@ -1928,14 +1948,13 @@ function calcStd(fy){
       const isDirect = e.j && e.j!==COMMON_JOB.id && sales[e.j]!==undefined;
       let a = e.a;
       if(!isDirect){ a = e.a * prodRatio(e.c, income, welfare); welfareCut += e.a - a; }
-      put(s.grp, s.std, a, e.j, entryTargets(e));
+      put(s.grp, s.std, a, e.j, entryTargets(e), e.c);
     }
     else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null, jid); } // 工賃は全作業へ売上比で按分
   });
 
   /** 科目の作業別内訳（共通分は指定された按分先へ売上比で配る） */
-  const byJob = (grp,std)=>{
-    const a = acc[grp] && acc[grp][std];
+  const spreadOne = (a)=>{
     const out = {}; jid.forEach(i=>out[i]=0);
     if(!a) return out;
     jid.forEach(i=>{ out[i] = (a.direct[i]||0); });
@@ -1947,7 +1966,10 @@ function calcStd(fy){
     });
     return out;
   };
-  const amt = (grp,std)=> (acc[grp] && acc[grp][std]) ? acc[grp][std].total : 0;
+  const byJob     = (grp,std)=> spreadOne(acc[grp] && acc[grp][std]);
+  const byJobCost = (costId)=>  spreadOne(accCost[costId]);
+  const amt     = (grp,std)=> (acc[grp] && acc[grp][std]) ? acc[grp][std].total : 0;
+  const amtCost = (costId)=>  accCost[costId] ? accCost[costId].total : 0;
 
   // 売上比で按分するだけの値（棚卸など、作業に紐づかないもの）
   const spread = v => { const o={}; jid.forEach(i=>o[i]=v*share(i)); return o; };
@@ -1972,7 +1994,13 @@ function calcStd(fy){
   const currentGaichu = gaichu + gaichuInner;
 
   // ---- IV 経費 ----
-  const keihiItems = STD_ITEMS['経費'].map(s=>({name:s, total:amt('経費',s), job:byJob('経費',s)}));
+  // 様式の科目名か、自社（TKC）の科目名か。ガイドラインp36で、準拠する会計基準の
+  // 勘定科目に変更してよいとされている。
+  const keihiItems = ownNames()
+    ? DB.costs.filter(x=>(x.grp||'経費')==='経費')
+        .map(x=>({name:x.name, total:amtCost(x.id), job:byJobCost(x.id)}))
+        .filter(x=>x.total)
+    : STD_ITEMS['経費'].map(s=>({name:s, total:amt('経費',s), job:byJob('経費',s)}));
   const currentKeihi = keihiItems.reduce((s,x)=>s+x.total,0);
   const currentKeihiJ = keihiItems.reduce((o,x)=>addTo(o,x.job), zero());
 
@@ -2145,6 +2173,7 @@ function renderKessan(){
   let t4=`<thead><tr><th style="text-align:left">勘定科目</th><th>合　計</th>${th}</tr></thead><tbody>`;
   /** 様式の科目名の下に、実際に入っているTKCの科目名を小さく添える（画面のみ） */
   const stdCostNote = std => {
+    if(ownNames()) return '';   // すでに自社の科目名で出しているので添える必要がない
     const names = DB.costs.filter(x=>x.std===std && x.name!==std).map(x=>x.name);
     return names.length ? `<span style="color:var(--sub);font-size:11px"> ／ ${esc(names.join('・'))}</span>` : '';
   };
@@ -2273,6 +2302,11 @@ async function exportKessanExcel(){
   if(showJobs && jobs.length > XLS_MAXJOBS){
     if(!confirm(`作業が${jobs.length}件あり、様式に入るのは${XLS_MAXJOBS}件までです。\n上位${XLS_MAXJOBS}件だけ列に出し、残りは合計にのみ含めます。よろしいですか？`)) return;
   }
+  if(c.keihiItems.length > XLS_KEIHI_ROWS){
+    if(!confirm(`経費の科目が${c.keihiItems.length}件あり、様式に入るのは${XLS_KEIHI_ROWS}件までです。\n`
+      +`${XLS_KEIHI_ROWS}件だけ書き出すと合計と合わなくなります。\n`
+      +`費目をまとめるか、「様式どおりの科目名」に切り替えてください。\n\nこのまま書き出しますか？`)) return;
+  }
   const office = (DB.settings.officeName||'').trim();
   const period = periodLabel(fy);
   /** 合計＋作業別をまとめて書き込む */
@@ -2315,7 +2349,16 @@ async function exportKessanExcel(){
   s4 = line(s4, 17, c.currentLabor, c.currentLaborJ);
   s4 = line(s4, 19, c.gaichuInner, null);
   s4 = line(s4, 20, c.currentGaichu, c.gaichuJ);
-  c.keihiItems.forEach((x,i)=>{ s4 = line(s4, 22+i, x.total, x.job); });   // 22..41
+  // 経費は行22〜41（20行）。自社の科目名で出すときは科目名（B列）も書き換える
+  c.keihiItems.slice(0,XLS_KEIHI_ROWS).forEach((x,i)=>{
+    if(ownNames()) s4 = xlsSetCell(s4, 'B'+(22+i), `　${i+1}．${x.name}`, true);
+    s4 = line(s4, 22+i, x.total, x.job);
+  });
+  // 使わなかった行は空にする
+  for(let i=c.keihiItems.length; i<XLS_KEIHI_ROWS; i++){
+    if(ownNames()) s4 = xlsSetCell(s4, 'B'+(22+i), null, true);
+    s4 = line(s4, 22+i, 0, null);
+  }
   s4 = line(s4, 42, c.currentKeihi, c.currentKeihiJ);
   s4 = line(s4, 43, c.soHiyou, c.soHiyouJ);
   s4 = line(s4, 44, d.openWip, null);
@@ -2625,6 +2668,7 @@ function renderSettings(){
     : 'ふだんの管理用の画面です。決算のときは基準版に切り替えてください（データはそのまま使えます）。';
   document.getElementById('stdOptions').style.display = isStd()?'':'none';
   document.getElementById('setJobBreakdown').checked = DB.settings.stdJobBreakdown!==false;
+  document.getElementById('setOwnNames').checked = ownNames();
 
   // 費目（基準版では表4の勘定科目を紐づける）
   const grpSel = x => `<select onchange="updCostStd('${x.id}','grp',this.value)" style="padding:6px">
@@ -2777,6 +2821,10 @@ function onModeChange(){
 }
 function onJobBreakdownChange(){
   DB.settings.stdJobBreakdown = document.getElementById('setJobBreakdown').checked;
+  saveMaster(); renderAll();
+}
+function onOwnNamesChange(){
+  DB.settings.stdOwnNames = document.getElementById('setOwnNames').checked;
   saveMaster(); renderAll();
 }
 function updCostStd(id,key,v){
