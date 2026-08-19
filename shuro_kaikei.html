@@ -670,10 +670,13 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <div class="row" style="margin-top:8px">
         <button class="btn" onclick="document.getElementById('tkcListFile').click()">📋 PDFから科目の一覧を作る</button>
         <input type="file" id="tkcListFile" accept=".pdf" style="display:none" onchange="buildTkcListFromPdf(event)">
-        <button class="btn sub" onclick="addSuggestedTkc()">よく使う科目を入れる</button>
+        <button class="btn sub" onclick="addSuggestedTkc()">⚡ おすすめの扱いをまとめて設定</button>
       </div>
-      <p class="hint"><b>まずはこれです。</b>PDFを選ぶと、この事業所の科目がぜんぶ上の一覧に並びます（コードも名前も入力不要）。
-        はじめはすべて「<b>－ 取り込まない</b>」なので、使う科目だけ扱いを選んでください。<br>
+      <p class="hint"><b>①「PDFから科目の一覧を作る」</b>… PDFを選ぶと、この事業所の科目がぜんぶ上の一覧に並びます（コードも名前も入力不要）。<br>
+        <b>②「おすすめの扱いをまとめて設定」</b>… 給与・水道光熱費などを<b>収入比で自動</b>、食材費・活動支援費・おやつ代などを<b>全額</b>、
+        訓練等給付費収入を<b>按分の分母</b>に、まとめて設定します。<b>1つずつ選ぶ必要はありません。</b>
+        あとから個別に変えられます。<br>
+        本社経費負担勘定・接待交際費・利用者工賃は判断が要るので「－ 取り込まない」のままです。<br>
         電気料(6219A)のような<b>内訳の科目</b>も並びます。親の科目（6219 水道光熱費）と<b>両方を取り込むと二重になる</b>ので、
         どちらか一方だけを選んでください。利用者工賃はアプリで別に管理しているので、取り込まないままにします。</p>
       <div class="row" style="margin-top:6px">
@@ -3781,16 +3784,29 @@ async function buildTkcListFromPdf(ev){
     alert('PDFを読めませんでした。\n' + (err && err.message ? err.message : err));
   }
 }
-/** よく使う科目をまとめて登録する（すでにあるコードは飛ばす） */
+/** おすすめの扱いを、まとめて設定する（一覧に無い科目は追加する） */
 function addSuggestedTkc(){
   const list = tkcAccounts();
-  const add = TKC_SUGGESTED.filter(s=>!list.some(a=>a.code===s.code));
-  if(!add.length){ alert('追加できる科目はありませんでした（すべて登録済みです）。'); return; }
-  const names = add.map(s=>`${s.code} ${s.name}`).join('\n');
-  if(!confirm(`次の${add.length}件を追加します。\n\n${names}\n\nいらないものは、あとで「削除」で消せます。`)) return;
-  add.forEach(s=>list.push(Object.assign({}, s)));
-  saveMaster(); renderTkcTable();
-  toast(`${add.length}件の科目を追加しました`);
+  const label = s => s.kind==='welfare' ? '福祉事業収入'
+               : s.prod==='all' ? '全額（生産活動だけ）' : '収入比で自動';
+  const lines = TKC_SUGGESTED.map(s=>{
+    const cur = list.find(a=>a.code===s.code);
+    const name = cur ? cur.name : s.name;
+    return `${s.code} ${name} → ${label(s)}${cur?'':'（新しく追加）'}`;
+  });
+  if(!confirm(`次のとおり、まとめて設定します。\n\n${lines.join('\n')}\n\n`
+    + `ここに無い科目（本社経費負担勘定・利用者工賃など）は、\n`
+    + `「－ 取り込まない」のままです。あとで1つずつ変えられます。\n\nよろしいですか？`)) return;
+
+  TKC_SUGGESTED.forEach(s=>{
+    let a = list.find(x=>x.code===s.code);
+    if(!a){ a = {code:s.code, name:s.name}; list.push(a); }   // 名前は一覧にあるもの（PDFの科目名）を優先
+    if(s.kind==='welfare'){ a.kind='welfare'; delete a.prod; }
+    else { a.kind='cost'; a.prod = s.prod; syncCostProd(a); }
+  });
+  list.sort((a,b)=> String(a.code).localeCompare(String(b.code)));
+  saveMaster(); renderAll();
+  toast(`${TKC_SUGGESTED.length}件の扱いを設定しました`);
 }
 function delTkcAccount(i){ tkcAccounts().splice(i,1); saveMaster(); renderTkcTable(); }
 function addTkcAccount(){
