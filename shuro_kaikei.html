@@ -653,23 +653,27 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <table class="tbl" id="setTkcTable" style="margin-top:10px"></table>
       <div id="tkcDupWarn"></div>
       <div class="row" style="margin-top:8px">
+        <button class="btn" onclick="document.getElementById('tkcListFile').click()">📋 PDFから科目の一覧を作る</button>
+        <input type="file" id="tkcListFile" accept=".pdf" style="display:none" onchange="buildTkcListFromPdf(event)">
+        <button class="btn sub" onclick="addSuggestedTkc()">よく使う科目を入れる</button>
+      </div>
+      <p class="hint"><b>まずはこれです。</b>PDFを選ぶと、この事業所の科目がぜんぶ上の一覧に並びます（コードも名前も入力不要）。
+        はじめはすべて「<b>－ 取り込まない</b>」なので、使う科目だけ扱いを選んでください。<br>
+        電気料(6219A)のような<b>内訳の科目</b>も並びます。親の科目（6219 水道光熱費）と<b>両方を取り込むと二重になる</b>ので、
+        どちらか一方だけを選んでください。利用者工賃はアプリで別に管理しているので、取り込まないままにします。</p>
+      <div class="row" style="margin-top:6px">
         <input type="text" id="newTkcCode" placeholder="科目コード（例：6229）" style="max-width:180px">
         <input type="text" id="newTkcName" placeholder="費目名（例：車両費）" style="max-width:200px">
-        <button class="btn sub" onclick="addTkcAccount()">＋ 科目を追加</button>
-        <button class="btn sub" onclick="addSuggestedTkc()">📋 よく使う科目をまとめて入れる</button>
+        <button class="btn sub" onclick="addTkcAccount()">＋ 手で科目を追加</button>
       </div>
-      <p class="hint">「まとめて入れる」では、給与・賞与・法定福利費・水道光熱費・通信費・賃借料などの<b>共通経費</b>と、
-        食材費・委託費などの<b>生産活動だけの経費</b>、それに按分の計算に使う<b>訓練等給付費収入</b>が入ります。<br>
-        電気料(6219A)のような<b>内訳の科目は入れません</b>。親の科目（6219 水道光熱費）に含まれているので、入れると二重になります。
-        利用者工賃もアプリで別に管理しているため入れません。</p>
       <div class="row" style="margin-top:14px">
         <button class="btn" onclick="document.getElementById('tkcFile').click()">🏢 TKCのPDFを読み込む</button>
         <input type="file" id="tkcFile" accept=".pdf" style="display:none" onchange="importTkcPdf(event)">
       </div>
       <p class="hint" id="tkcStatus"></p>
-      <p class="hint">💡 <b>福祉事業と生産活動の按分は、この下の「費目」の表</b>にある
-        「①生産活動が負担する割合」で決めます（費目ごとに、全額／収入比で自動／手入力％）。
-        取り込んだ費目は、はじめは<b>収入比で自動</b>になっています。</p>
+      <p class="hint">💡 <b>福祉事業と生産活動の按分は、上の一覧で決まります。</b>
+        変えるとその場で収支に反映されます（明細は入れ直さなくて大丈夫です）。<br>
+        手入力で登録している経費の按分は、この下の「費目」の表の「①生産活動が負担する割合」で決めます。</p>
       <div id="tkcCheckBox"></div>
 
       <h3>💾 まるごとバックアップ</h3>
@@ -916,9 +920,7 @@ function currentProdRatio(){
 }
 /* TKCの「部門別科目残高推移表」から取り込む科目。コードは会計ソフトの勘定科目コード。 */
 const TKC_DEFAULT_ACCOUNTS = [
-  {code:'4113A', name:'訓練等給付費収入', kind:'welfare'},
-  {code:'6111', name:'職員給与', prod:'auto'},
-  {code:'6219', name:'水道光熱費', prod:'auto'}
+  {code:'4113A', name:'訓練等給付費収入', kind:'welfare'}
 ];
 /* 「おすすめの科目をまとめて入れる」で登録される科目。
    prod: 'auto'=福祉と生産で収入比按分 / 'all'=全額が生産活動
@@ -939,7 +941,9 @@ const TKC_SUGGESTED = [
   {code:'6231', name:'雑費',           prod:'auto'},
   {code:'6234', name:'賃借料',          prod:'auto'},
   {code:'6116', name:'食材費',          prod:'all'},
-  {code:'6232', name:'委託費',          prod:'all'}
+  {code:'6232', name:'委託費',          prod:'all'},
+  {code:'6118', name:'活動支援費',      prod:'all'},
+  {code:'6228', name:'おやつ代',        prod:'all'}
 ];
 function tkcAccounts(){
   if(!Array.isArray(DB.settings.tkcAccounts)) DB.settings.tkcAccounts = TKC_DEFAULT_ACCOUNTS.slice();
@@ -2139,6 +2143,11 @@ function renderKessan(){
 
   // ---- 表4 ----
   let t4=`<thead><tr><th style="text-align:left">勘定科目</th><th>合　計</th>${th}</tr></thead><tbody>`;
+  /** 様式の科目名の下に、実際に入っているTKCの科目名を小さく添える（画面のみ） */
+  const stdCostNote = std => {
+    const names = DB.costs.filter(x=>x.std===std && x.name!==std).map(x=>x.name);
+    return names.length ? `<span style="color:var(--sub);font-size:11px"> ／ ${esc(names.join('・'))}</span>` : '';
+  };
   const line=(label,total,jobObj,indent,strong)=>{
     t4+=`<tr${strong?' class="total"':''}><td style="text-align:left;padding-left:${indent}px">${label}</td>
       <td class="num">${total||total===0?num(total):''}</td>${jobObj?cell(jobObj,total):blank()}</tr>`;
@@ -2150,13 +2159,13 @@ function renderKessan(){
   line('3．期末材料棚卸高', d.closeMat, null, 24);
   line('当期材料費', c.currentMaterial, c.currentMaterialJ, 48, true);
   line('Ⅱ　労務費','',null,4,true);
-  c.laborItems.forEach((x,i)=> line(`${i+1}．${x.name}`, x.total, x.job, 24));
+  c.laborItems.forEach((x,i)=> line(`${i+1}．${x.name}${stdCostNote(x.name)}`, x.total, x.job, 24));
   line('当期労務費', c.currentLabor, c.currentLaborJ, 48, true);
   line('Ⅲ　外注加工費','',null,4,true);
   line('（うち内部外注加工費）', c.gaichuInner, null, 24);
   line('当期外注加工費', c.currentGaichu, c.gaichuJ, 48, true);
   line('Ⅳ　経費','',null,4,true);
-  c.keihiItems.forEach((x,i)=> line(`${i+1}．${x.name}`, x.total, x.job, 24));
+  c.keihiItems.forEach((x,i)=> line(`${i+1}．${x.name}${stdCostNote(x.name)}`, x.total, x.job, 24));
   line('当期経費', c.currentKeihi, c.currentKeihiJ, 48, true);
   line('当期就労支援事業製造総費用', c.soHiyou, c.soHiyouJ, 24, true);
   line('期首仕掛品棚卸高', d.openWip, null, 24);
@@ -3253,10 +3262,10 @@ function parseTkcPage(words, codes){
     if(hit) rows[code] = readVals(hit);
   });
 
-  // ページ上の科目をすべて拾う（取り込み漏れの確認用）。
-  // 内訳科目（6219Aなど）は親科目に含まれ二重になるので、4桁ちょうどのものだけ。
+  // ページ上の科目をすべて拾う。内訳科目（6219A 電気料など）も含める。
+  // ※ 集計に使うときは、親科目に含まれて二重になるので4桁ちょうどだけを足すこと。
   const all = [];
-  words.filter(w=>/^\d{4}$/.test(w.s)).forEach(hit=>{
+  words.filter(w=>/^\d{4}[A-Z0-9]*$/.test(w.s)).forEach(hit=>{
     // 同じ高さで左にある文字が科目名
     const label = words.filter(w=>Math.abs(w.y-hit.y)<3 && w.x<hit.x)
                        .sort((a,b)=>a.x-b.x).map(w=>w.s).join('').trim();
@@ -3321,8 +3330,8 @@ async function importTkcPdf(ev){
   if(!f) return;
   const dept = (DB.settings.tkcDept||'').trim();
   if(!dept){ alert('先に「この事業所の部門コード」を入れてください。\nPDFの左上「部門：030 …」の数字です。'); return; }
-  const accts = tkcAccounts().filter(a=>a.code && a.name);
-  if(!accts.length){ alert('取り込む科目がありません。科目コードと費目名を追加してください。'); return; }
+  const accts = tkcAccounts().filter(a=>a.code && a.name && a.kind!=='skip');
+  if(!accts.length){ alert('取り込む科目がありません。\n科目一覧で「取り込まない」以外の扱いを選んでください。'); return; }
 
   const st = document.getElementById('tkcStatus');
   st.textContent = 'PDFを読んでいます…';
@@ -3448,6 +3457,10 @@ async function commitTkcImport(){
       ts: new Date().toISOString()
     });
   });
+  // 「取り込まない」に変えた科目の明細が残っていたら、ここで消す
+  tkcAccounts().filter(a=>a.kind==='skip').forEach(a=>{
+    tkcEntriesOf(a.code).forEach(e=>removeEntry(e.id));
+  });
   // あとから設定画面で見返せるように、検算の結果を残しておく
   DB.settings.tkcCheck = p.cv ? {at:todayISO(), dept:p.dept, months:p.months, cv:p.cv} : null;
   closeModal('tkcModal');
@@ -3472,28 +3485,97 @@ function saveTkcDept(){
   saveMaster();
   toast('部門コードを保存しました');
 }
+/* 科目1つにつき、扱いを1つ選ぶ。取り込むかどうかと按分を、この選択だけで決める。 */
+function tkcModeOf(a){
+  if(a.kind==='welfare') return 'welfare';
+  if(a.kind==='skip') return 'skip';
+  const v = (a.prod==null) ? 'all' : a.prod;
+  return (v==='all'||v==='auto') ? v : 'manual';
+}
+/** 一覧で扱いを変える。対応する費目の按分も同時に直す */
+function setTkcMode(i, mode){
+  const a = tkcAccounts()[i]; if(!a) return;
+  if(mode==='welfare'){ a.kind='welfare'; delete a.prod; }
+  else if(mode==='skip'){
+    // 取り込み済みの明細があれば、あわせて消すか尋ねる
+    const keep = tkcEntriesOf(a.code);
+    if(keep.length && !confirm(`「${a.name}」を取り込まないようにします。\nすでに取り込んである ${keep.length}件 の明細も消しますか？\n\nOK＝消す　／　キャンセル＝明細は残す`)){
+      a.kind='skip'; saveMaster(); renderAll(); return;
+    }
+    if(keep.length) keep.forEach(e=>removeEntry(e.id));
+    a.kind='skip';
+  }
+  else if(mode==='manual'){
+    a.kind='cost';
+    const r = currentProdRatio();
+    a.prod = (a.prod==='auto' && r!=null) ? +(r*100).toFixed(1) : 50;
+  }
+  else { a.kind='cost'; a.prod = mode; }   // 'all' か 'auto'
+  syncCostProd(a);
+  saveMaster(); renderAll();
+}
+/** 手入力の％を変える */
+function setTkcPct(i, v){
+  const a = tkcAccounts()[i]; if(!a) return;
+  a.kind='cost'; a.prod = Math.max(0, Math.min(100, +v||0));
+  syncCostProd(a);
+  saveMaster(); renderAll();
+}
+/** 一覧で決めた按分を、対応する費目にも反映する（費目側の設定と食い違わないように） */
+function syncCostProd(a){
+  if(a.kind!=='cost') return;
+  const c = DB.costs.find(x=>x.name===a.name);
+  if(c) c.prod = (a.prod==null) ? 'all' : a.prod;
+}
+/** その科目コードで取り込んだ明細 */
+function tkcEntriesOf(code){
+  const dept = (DB.settings.tkcDept||'').trim();
+  const pre = `${dept}|${code}|`;
+  return DB.entries.filter(e=>e.tkc && e.tkc.indexOf(pre)===0);
+}
+
 function renderTkcTable(){
   const el = document.getElementById('setTkcTable');
   if(!el) return;
   document.getElementById('setTkcDept').value = DB.settings.tkcDept||'';
-  let h = `<thead><tr><th style="text-align:left">科目コード</th><th style="text-align:left">アプリでの費目名</th><th style="text-align:left">扱い</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  const autoR = currentProdRatio();
+  const autoTxt = autoR!=null ? `収入比で自動（${(autoR*100).toFixed(1)}%）` : '収入比で自動';
+  const opt = (v,cur,label) => `<option value="${v}" ${cur===v?'selected':''}>${label}</option>`;
+
+  let h = `<thead><tr>
+      <th style="text-align:left">コード</th>
+      <th style="text-align:left">科目名（TKC）</th>
+      <th style="text-align:left">扱い ／ 生産活動が負担する割合</th>
+      <th style="text-align:right">金額</th>
+      <th class="noprint">操作</th></tr></thead><tbody>`;
   const list = tkcAccounts();
-  if(!list.length) h += `<tr><td colspan="4" style="text-align:center;color:var(--sub);padding:16px">科目がありません</td></tr>`;
+  if(!list.length) h += `<tr><td colspan="5" style="text-align:center;color:var(--sub);padding:16px">科目がありません。下の「PDFから科目の一覧を作る」が便利です。</td></tr>`;
   list.forEach((a,i)=>{
-    h += `<tr>
-      <td style="text-align:left"><input type="text" value="${esc(a.code)}" onchange="updTkcAccount(${i},'code',this.value)" style="padding:6px;max-width:120px"></td>
+    const mode = tkcModeOf(a);
+    const off = (mode==='skip');
+    h += `<tr${off?' style="opacity:.5"':''}>
+      <td style="text-align:left"><input type="text" value="${esc(a.code)}" onchange="updTkcAccount(${i},'code',this.value)" style="padding:6px;max-width:110px"></td>
       <td style="text-align:left"><input type="text" value="${esc(a.name)}" onchange="updTkcAccount(${i},'name',this.value)" style="padding:6px"></td>
-      <td style="text-align:left"><select onchange="updTkcAccount(${i},'kind',this.value)" style="padding:6px">
-        <option value="cost"    ${a.kind!=='welfare'?'selected':''}>経費として登録</option>
-        <option value="welfare" ${a.kind==='welfare'?'selected':''}>福祉事業収入（按分に使う）</option>
-      </select></td>
+      <td style="text-align:left">
+        <select onchange="setTkcMode(${i},this.value)" style="padding:6px">
+          ${opt('skip',    mode, '－ 取り込まない')}
+          ${opt('all',     mode, '全額（100%が生産活動）')}
+          ${opt('auto',    mode, autoTxt)}
+          ${opt('manual',  mode, '手入力…')}
+          ${opt('welfare', mode, '福祉事業収入（按分の分母）')}
+        </select>` +
+        (mode==='manual'
+          ? ` <input type="number" min="0" max="100" step="0.1" value="${+a.prod}" onchange="setTkcPct(${i},this.value)" style="padding:6px;width:70px">%`
+          : '') + `</td>
+      <td style="text-align:right;color:var(--sub);font-size:12px">${a.amt!=null?yen(a.amt):''}</td>
       <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delTkcAccount(${i})">削除</button></td>
     </tr>`;
   });
   el.innerHTML = h + `</tbody>`;
 
-  // 親科目（6219）と内訳科目（6219A）を両方入れると二重計上になるので知らせる
-  const codes = list.filter(a=>a.kind!=='welfare').map(a=>(a.code||'').trim()).filter(Boolean);
+  // 親科目（6219）と内訳科目（6219A）を両方「取り込む」にすると二重計上になるので知らせる
+  const codes = list.filter(a=>tkcModeOf(a)!=='welfare' && tkcModeOf(a)!=='skip')
+                    .map(a=>(a.code||'').trim()).filter(Boolean);
   const dup = [];
   codes.forEach(child=>{
     codes.forEach(parent=>{
@@ -3515,7 +3597,56 @@ function renderTkcTable(){
       + tkcCoverageHtml(ck.cv, ck.months)
     : '';
 }
-function updTkcAccount(i, k, v){ const a=tkcAccounts()[i]; if(a){ a[k]=v.trim(); saveMaster(); } }
+function updTkcAccount(i, k, v){ const a=tkcAccounts()[i]; if(a){ a[k]=v.trim(); syncCostProd(a); saveMaster(); } }
+
+/** PDFに載っているこの部門の科目を、ぜんぶ一覧に並べる（扱いは「取り込まない」で入る） */
+async function buildTkcListFromPdf(ev){
+  const f = ev.target.files[0]; ev.target.value='';
+  if(!f) return;
+  const dept = (DB.settings.tkcDept||'').trim();
+  if(!dept){ alert('先に「この事業所の部門コード」を入れてください。'); return; }
+  const st = document.getElementById('tkcStatus');
+  st.textContent = 'PDFを読んでいます…';
+  try{
+    const lib = await loadPdfjs();
+    const doc = await lib.getDocument({ data: await f.arrayBuffer(),
+      cMapUrl: PDFJS_BASE+'cmaps/', cMapPacked: true }).promise;
+    const rows = [];
+    for(let p=1; p<=doc.numPages; p++){
+      const words = await pdfWords(await doc.getPage(p));
+      let code = null;
+      for(const w of words){ const m = w.s.match(/門\s*[：:]\s*(\d{2,4})/); if(m){ code=m[1]; break; } }
+      if(!sameDeptCode(code, dept)) continue;
+      const parsed = parseTkcPage(words, []);
+      if(parsed) rows.push(...parsed.all);
+    }
+    st.textContent = '';
+    if(!rows.length){ alert(`部門コード「${dept}」のページが見つかりませんでした。`); return; }
+
+    const list = tkcAccounts();
+    const sum = v => v.reduce((s,x)=>s+(x||0), 0);
+    const added = [];
+    const seen = new Set();
+    rows.forEach(r=>{
+      if(seen.has(r.code)) return;
+      seen.add(r.code);
+      const amt = sum(r.vals);
+      const cur = list.find(a=>a.code===r.code);
+      if(cur){ cur.amt = amt; if(!cur.name) cur.name = r.label; return; }  // 既にあるものは金額だけ更新
+      if(!amt) return;                                                     // 6ヶ月とも0の科目は入れない
+      list.push({ code:r.code, name:r.label||r.code, kind:'skip', amt });
+      added.push(`${r.code} ${r.label}`);
+    });
+    list.sort((a,b)=> String(a.code).localeCompare(String(b.code)));
+    saveMaster(); renderTkcTable();
+    alert(added.length
+      ? `${added.length}件の科目を一覧に並べました。\nはじめはすべて「取り込まない」です。\n一覧で扱いを選んでください。`
+      : '新しく並べる科目はありませんでした（金額の一覧を更新しました）。');
+  }catch(err){
+    console.error(err); st.textContent='';
+    alert('PDFを読めませんでした。\n' + (err && err.message ? err.message : err));
+  }
+}
 /** よく使う科目をまとめて登録する（すでにあるコードは飛ばす） */
 function addSuggestedTkc(){
   const list = tkcAccounts();
