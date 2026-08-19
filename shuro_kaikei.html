@@ -635,6 +635,30 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
       <p class="hint">CSVの列は「日付, 摘要, 収入, 支出, 勘定科目1, 勘定科目2, 入金日」。今のExcelからそのまま貼り付けられます。</p>
 
+      <h3>🏢 会計ソフト（TKC）のPDFから経費を取り込む</h3>
+      <p class="hint">TKCの「<b>部門別科目残高推移表</b>」のPDFをそのまま選ぶだけで、決めておいた科目の
+        <b>月ごとの金額</b>を「共通（あとで分ける）」の経費として登録します。<br>
+        取り込んだあとは、費目ごとの按分先で作業に分けてください。<b>同じ月を入れ直しても二重にはなりません</b>（上書きされます）。</p>
+      <div class="row" style="align-items:flex-end">
+        <div class="grow" style="max-width:200px">
+          <label class="lbl">この事業所の部門コード</label>
+          <input type="text" id="setTkcDept" placeholder="例：030" onchange="saveTkcDept()">
+        </div>
+      </div>
+      <p class="hint">PDFの左上「部門：<b>030</b> ジョブきらめき」の数字です。一度だけ入れておけば、
+        全部門が入ったPDFでも<b>この事業所のページだけ</b>を自動で見つけます。</p>
+      <table class="tbl" id="setTkcTable" style="margin-top:10px"></table>
+      <div class="row" style="margin-top:8px">
+        <input type="text" id="newTkcCode" placeholder="科目コード（例：6229）" style="max-width:180px">
+        <input type="text" id="newTkcName" placeholder="費目名（例：車両費）" style="max-width:200px">
+        <button class="btn sub" onclick="addTkcAccount()">＋ 科目を追加</button>
+      </div>
+      <div class="row" style="margin-top:14px">
+        <button class="btn" onclick="document.getElementById('tkcFile').click()">🏢 TKCのPDFを読み込む</button>
+        <input type="file" id="tkcFile" accept=".pdf" style="display:none" onchange="importTkcPdf(event)">
+      </div>
+      <p class="hint" id="tkcStatus"></p>
+
       <h3>💾 まるごとバックアップ</h3>
       <div class="row">
         <button class="btn sub" onclick="exportBackup()">💾 バックアップを保存</button>
@@ -652,6 +676,22 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     </div>
   </section>
 </main>
+
+<!-- TKCのPDFから読み取った内容の確認モーダル -->
+<div class="modal" id="tkcModal">
+  <div class="box" style="max-width:640px">
+    <h3>🏢 読み取った内容の確認</h3>
+    <p class="hint" id="tkcHead"></p>
+    <div style="max-height:50vh;overflow:auto">
+      <table class="tbl" id="tkcPreview"></table>
+    </div>
+    <p class="hint" id="tkcDup" style="margin-top:10px"></p>
+    <div class="row" style="margin-top:18px">
+      <button class="btn" onclick="commitTkcImport()">この内容で取り込む</button>
+      <button class="btn sub" onclick="closeModal('tkcModal')">やめる</button>
+    </div>
+  </div>
+</div>
 
 <!-- 業者ごとの按分先を選ぶモーダル -->
 <div class="modal" id="presetJobsModal">
@@ -831,7 +871,17 @@ let DB = { entries: [], jobs: [], costs: [], settings: {} };
 
 function defaultSettings(){
   return { fyStart:10, alloc:'sales', allocRatio:{},
-           mode:'simple', stdJobBreakdown:true, fyData:{}, officeName:'' };
+           mode:'simple', stdJobBreakdown:true, fyData:{}, officeName:'',
+           tkcDept:'', tkcAccounts:TKC_DEFAULT_ACCOUNTS.slice() };
+}
+/* TKCの「部門別科目残高推移表」から取り込む科目。コードは会計ソフトの勘定科目コード。 */
+const TKC_DEFAULT_ACCOUNTS = [
+  {code:'6111', name:'職員給与'},
+  {code:'6219', name:'水道光熱費'}
+];
+function tkcAccounts(){
+  if(!Array.isArray(DB.settings.tkcAccounts)) DB.settings.tkcAccounts = TKC_DEFAULT_ACCOUNTS.slice();
+  return DB.settings.tkcAccounts;
 }
 /** 年度ごとの決算整理データ（棚卸・積立金） */
 function fyData(fy){
@@ -2530,6 +2580,8 @@ function renderSettings(){
   const fs=document.getElementById('setFyStart');
   fs.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('');
   fs.value = fyStart();
+
+  renderTkcTable();
 }
 function renameJob(id,v){ const j=jobById(id); if(j){ j.name=v.trim()||j.name; saveMaster(); renderAll(); } }
 function regroupJob(id,v){ const j=jobById(id); if(j){ j.group=v; saveMaster(); renderAll(); } }
@@ -3003,6 +3055,216 @@ async function importCsvFile(ev){
   await saveMaster();
   await putEntries(list);
   toast(list.length+'件 取り込みました'); renderAll();
+}
+
+/* ============ TKC「部門別科目残高推移表」PDFの取り込み ============ */
+/* PDFの文字はページ上の座標つきで取れる。表の列は月ごとにx座標が決まっているので、
+   科目コードと同じ高さ(y)にある数字を、月の列に振り分けて読み取る。 */
+
+const PDFJS_VER = '4.4.168';
+const PDFJS_BASE = 'https://unpkg.com/pdfjs-dist@' + PDFJS_VER + '/';
+let _pdfjs = null;
+
+/** pdf.js を読み込む。日本語を読むには cMapUrl の指定が要る（無いと1文字も取れない） */
+async function loadPdfjs(){
+  if(_pdfjs) return _pdfjs;
+  const lib = await import(PDFJS_BASE + 'build/pdf.min.mjs');
+  lib.GlobalWorkerOptions.workerSrc = PDFJS_BASE + 'build/pdf.worker.min.mjs';
+  _pdfjs = lib;
+  return lib;
+}
+/** ページの文字を {s:文字, x:横位置, y:縦位置} の配列にする */
+async function pdfWords(page){
+  const c = await page.getTextContent();
+  return c.items.filter(i=>i.str && i.str.trim())
+    .map(i=>({ s:i.str.trim(), x:i.transform[4], y:i.transform[5] }));
+}
+/** 令和N年 → 西暦（令和1年=2019年） */
+function reiwaToYear(n){ return 2018 + n; }
+
+/**
+ * 1ページから、指定した科目コードの月別金額を読み取る。
+ * @returns {{cols:{y:number,m:number}[], rows:Object}} cols=月の列、rows[コード]=月ごとの金額
+ */
+function parseTkcPage(words, codes){
+  // 見出しの「8年 2月」から、月の列とその横位置を作る
+  const heads = [];
+  words.forEach(w=>{
+    const m = w.s.match(/^(\d+)年\s*(\d+)月$/);
+    if(m) heads.push({ x:w.x, y:w.y, year:reiwaToYear(+m[1]), m:+m[2] });
+  });
+  if(!heads.length) return null;
+  const headY = heads[0].y;
+  const cols = heads.filter(h=>Math.abs(h.y-headY)<3).sort((a,b)=>a.x-b.x);
+  if(cols.length<2) return null;
+  // 列の幅（＝見出しの間隔）の半分を、その列とみなす範囲にする
+  const half = (cols[1].x - cols[0].x) / 2;
+
+  const rows = {};
+  codes.forEach(code=>{
+    const hit = words.find(w=>w.s===code) ||
+                words.find(w=>new RegExp('(^|\\s)'+code+'$').test(w.s));
+    if(!hit) return;
+    // 同じ高さで、科目コードより右にある語だけを見る
+    const line = words.filter(w=>Math.abs(w.y-hit.y)<3 && w.x>hit.x).sort((a,b)=>a.x-b.x);
+    rows[code] = cols.map(col=>{
+      // その列の範囲でいちばん左の語が金額。右隣の前年比％は使わない
+      const first = line.find(w=>w.x>=col.x-half && w.x<col.x+half);
+      const num = first ? String(first.s).match(/^-?[\d,]+/) : null;
+      return num ? parseInt(num[0].replace(/,/g,''),10) : null;
+    });
+  });
+  return { cols, rows };
+}
+
+let _tkcPending = null;
+
+async function importTkcPdf(ev){
+  const f = ev.target.files[0]; ev.target.value='';
+  if(!f) return;
+  const dept = (DB.settings.tkcDept||'').trim();
+  if(!dept){ alert('先に「この事業所の部門コード」を入れてください。\nPDFの左上「部門：030 …」の数字です。'); return; }
+  const accts = tkcAccounts().filter(a=>a.code && a.name);
+  if(!accts.length){ alert('取り込む科目がありません。科目コードと費目名を追加してください。'); return; }
+
+  const st = document.getElementById('tkcStatus');
+  st.textContent = 'PDFを読んでいます…';
+  try{
+    const lib = await loadPdfjs();
+    const doc = await lib.getDocument({
+      data: await f.arrayBuffer(),
+      cMapUrl: PDFJS_BASE + 'cmaps/', cMapPacked: true
+    }).promise;
+
+    // 部門コードのページを探す（「部門： 030 ジョブきらめき」と入っている）
+    let found = null;
+    for(let p=1; p<=doc.numPages; p++){
+      const words = await pdfWords(await doc.getPage(p));
+      let code = null, deptName = '';
+      for(const w of words){
+        const m = w.s.match(/門\s*[：:]\s*(\d{3})\s*(.*)$/);
+        if(m){ code = m[1]; deptName = (m[2]||'').trim(); break; }
+      }
+      if(code !== dept) continue;
+      const parsed = parseTkcPage(words, accts.map(a=>a.code));
+      if(!parsed) continue;
+      // 1部門が複数ページに分かれるので、科目が取れたページの結果を合わせる
+      if(!found) found = { deptName, cols:parsed.cols, rows:{} };
+      Object.keys(parsed.rows).forEach(c=>{ if(!found.rows[c]) found.rows[c]=parsed.rows[c]; });
+    }
+    if(!found){ st.textContent=''; alert(`部門コード「${dept}」のページが見つかりませんでした。\n設定の部門コードと、PDFの「部門：」の数字が合っているか確かめてください。`); return; }
+
+    // 取り込む行を組み立てる
+    const list = [];
+    accts.forEach(a=>{
+      const vals = found.rows[a.code];
+      if(!vals) return;
+      found.cols.forEach((col,i)=>{
+        const v = vals[i];
+        if(v==null || !col.year) return;
+        list.push({ code:a.code, name:a.name, year:col.year, month:col.m, amount:v });
+      });
+    });
+    if(!list.length){ st.textContent=''; alert('金額を読み取れませんでした。PDFの形式が違うかもしれません。'); return; }
+
+    _tkcPending = { dept, deptName:found.deptName, list };
+    showTkcPreview();
+    st.textContent = '';
+  }catch(err){
+    console.error(err);
+    st.textContent = '';
+    alert('PDFを読めませんでした。\n' + (err && err.message ? err.message : err));
+  }
+}
+
+/** 取り込み前の確認画面 */
+function showTkcPreview(){
+  const p = _tkcPending;
+  document.getElementById('tkcHead').innerHTML =
+    `部門 <b>${esc(p.dept)}</b> ${esc(p.deptName)} … <b>${p.list.length}件</b>を読み取りました。`;
+  let h = `<thead><tr><th style="text-align:left">年月</th><th style="text-align:left">費目</th><th>金額</th></tr></thead><tbody>`;
+  p.list.forEach(r=>{
+    h += `<tr><td style="text-align:left">${r.year}年${r.month}月</td>
+      <td style="text-align:left">${esc(r.name)}<span style="color:var(--sub);font-size:12px"> (${esc(r.code)})</span></td>
+      <td style="text-align:right">${yen(r.amount)}</td></tr>`;
+  });
+  document.getElementById('tkcPreview').innerHTML = h + `</tbody>`;
+  const dup = p.list.filter(r=>DB.entries.some(e=>e.tkc===tkcKey(p.dept,r))).length;
+  document.getElementById('tkcDup').innerHTML = dup
+    ? `※ このうち <b>${dup}件</b> は前に取り込んだ分なので、二重にはならず<b>新しい金額に置き換わります</b>。`
+    : '';
+  document.getElementById('tkcModal').classList.add('open');
+}
+/** 同じ部門・科目・月なら同じ鍵。入れ直したとき二重にしないために使う */
+function tkcKey(dept, r){ return `${dept}|${r.code}|${r.year}-${String(r.month).padStart(2,'0')}`; }
+/** その月の末日 */
+function monthEnd(year, month){
+  const d = new Date(year, month, 0);
+  return `${year}-${String(month).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+
+async function commitTkcImport(){
+  const p = _tkcPending; if(!p) return;
+  const created = [];
+  const list = [];
+  const removeIds = [];
+  p.list.forEach(r=>{
+    const key = tkcKey(p.dept, r);
+    const old = DB.entries.find(e=>e.tkc===key);
+    if(old) removeIds.push(old.id);
+    list.push({
+      id: old ? old.id : genId(),
+      d: monthEnd(r.year, r.month),
+      t: 'out', a: r.amount,
+      j: COMMON_JOB.id,
+      c: resolveCostId(r.name, '', created),
+      m: `${r.name}（TKC ${r.year}年${r.month}月）`,
+      p: '', tkc: key,
+      ts: new Date().toISOString()
+    });
+  });
+  closeModal('tkcModal');
+  await saveMaster();
+  await putEntries(list);
+  _tkcPending = null;
+  let msg = `${list.length}件を取り込みました`;
+  if(created.length) msg += `（費目「${created.join('・')}」を追加）`;
+  toast(msg);
+  renderAll();
+}
+
+/* 設定画面：部門コードと科目の一覧 */
+function saveTkcDept(){
+  DB.settings.tkcDept = document.getElementById('setTkcDept').value.trim();
+  saveMaster();
+  toast('部門コードを保存しました');
+}
+function renderTkcTable(){
+  const el = document.getElementById('setTkcTable');
+  if(!el) return;
+  document.getElementById('setTkcDept').value = DB.settings.tkcDept||'';
+  let h = `<thead><tr><th style="text-align:left">科目コード</th><th style="text-align:left">アプリでの費目名</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  const list = tkcAccounts();
+  if(!list.length) h += `<tr><td colspan="3" style="text-align:center;color:var(--sub);padding:16px">科目がありません</td></tr>`;
+  list.forEach((a,i)=>{
+    h += `<tr>
+      <td style="text-align:left"><input type="text" value="${esc(a.code)}" onchange="updTkcAccount(${i},'code',this.value)" style="padding:6px;max-width:120px"></td>
+      <td style="text-align:left"><input type="text" value="${esc(a.name)}" onchange="updTkcAccount(${i},'name',this.value)" style="padding:6px"></td>
+      <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delTkcAccount(${i})">削除</button></td>
+    </tr>`;
+  });
+  el.innerHTML = h + `</tbody>`;
+}
+function updTkcAccount(i, k, v){ const a=tkcAccounts()[i]; if(a){ a[k]=v.trim(); saveMaster(); } }
+function delTkcAccount(i){ tkcAccounts().splice(i,1); saveMaster(); renderTkcTable(); }
+function addTkcAccount(){
+  const code = document.getElementById('newTkcCode').value.trim();
+  const name = document.getElementById('newTkcName').value.trim();
+  if(!code || !name){ alert('科目コードと費目名の両方を入れてください。'); return; }
+  tkcAccounts().push({code, name});
+  document.getElementById('newTkcCode').value='';
+  document.getElementById('newTkcName').value='';
+  saveMaster(); renderTkcTable();
 }
 
 function downloadFile(name, text, type){
