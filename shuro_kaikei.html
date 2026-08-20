@@ -38,6 +38,12 @@ nav.tabs{display:flex;gap:6px;background:#fff;padding:8px 12px;border-bottom:2px
 nav.tabs button{flex:0 0 auto;background:#f0f2f5;border:2px solid transparent;border-radius:10px;
   padding:10px 18px;font-size:15px;font-weight:700;color:var(--sub);white-space:nowrap}
 nav.tabs button.active{background:var(--green-l);border-color:var(--green);color:var(--green-d)}
+/* タブの説明の吹き出し。タブ列は横スクロールするので、body直下に固定で出す */
+#tabTip{position:fixed;z-index:400;background:var(--ink);color:#fff;padding:9px 13px;border-radius:10px;
+  font-size:13px;font-weight:600;line-height:1.5;max-width:min(92vw,380px);box-shadow:0 6px 20px rgba(0,0,0,.22);
+  opacity:0;visibility:hidden;transition:opacity .12s;pointer-events:none}
+#tabTip.show{opacity:1;visibility:visible}
+@media print{#tabTip{display:none}}
 
 main{max-width:1080px;margin:0 auto;padding:16px 14px 80px}
 .view{display:none}
@@ -179,15 +185,24 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 </header>
 
 <nav class="tabs">
-  <button data-tab="home" class="active" onclick="showTab('home')">🏠 ホーム</button>
-  <button data-tab="entry" onclick="showTab('entry')">✍ 入力</button>
-  <button data-tab="report" onclick="showTab('report')">📊 収支</button>
-  <button data-tab="jobled" onclick="showTab('jobled')">📗 作業別</button>
-  <button data-tab="list" onclick="showTab('list')">📋 明細</button>
-  <button data-tab="deposit" onclick="showTab('deposit')">🧾 入金票</button>
-  <button data-tab="kessan" id="tabKessan" style="display:none" onclick="showTab('kessan')">📑 決算（基準版）</button>
-  <button data-tab="settings" onclick="showTab('settings')">⚙ 設定</button>
+  <button data-tab="home" class="active" onclick="showTab('home')"
+    data-tip="今月の売上・経費・利用者工賃をひと目で見る画面です。">🏠 ホーム</button>
+  <button data-tab="entry" onclick="showTab('entry')"
+    data-tip="売上・経費・利用者工賃を1件ずつ登録します。よく使う業者はボタンで一発入力できます。">✍ 入力</button>
+  <button data-tab="report" onclick="showTab('report')"
+    data-tip="作業ごとの売上と経費を、月別の表とグラフで見ます。共通の経費は按分して計算します。">📊 収支</button>
+  <button data-tab="jobled" onclick="showTab('jobled')"
+    data-tip="作業ひとつを選び、その売上・経費・按分された共通経費を日付順に追います。計算の根拠も出ます。">📗 作業別</button>
+  <button data-tab="list" onclick="showTab('list')"
+    data-tip="入力したものを出納帳のかたちで一覧します。ここから直したり消したりできます。">📋 明細</button>
+  <button data-tab="deposit" onclick="showTab('deposit')"
+    data-tip="売上の入金予定を月ごとにまとめます。そのまま印刷できます。">🧾 入金票</button>
+  <button data-tab="kessan" id="tabKessan" style="display:none" onclick="showTab('kessan')"
+    data-tip="提出用の書類（表1・表4・別紙1）を作ります。棚卸や積立金もここで入れます。Excelで書き出せます。">📑 決算（基準版）</button>
+  <button data-tab="settings" onclick="showTab('settings')"
+    data-tip="作業・費目・業者・按分のしかた、TKCのPDF取り込み、バックアップの設定をします。">⚙ 設定</button>
 </nav>
+<div id="tabTip"></div>
 
 <main>
   <div id="modeBanner"></div>
@@ -4082,6 +4097,36 @@ async function importBackup(ev){
 }
 
 /* ============ タブ・全体描画 ============ */
+/* ============ タブの説明（カーソルを置くと出る） ============ */
+(function(){
+  const tip = () => document.getElementById('tabTip');
+  function showTip(btn){
+    const el = tip(), text = btn.dataset.tip;
+    if(!el || !text) return;
+    el.textContent = text;
+    el.classList.add('show');
+    // いったん出してから大きさを測り、タブの真下・画面内に収める
+    const b = btn.getBoundingClientRect(), t = el.getBoundingClientRect();
+    let x = b.left + b.width/2 - t.width/2;
+    x = Math.max(8, Math.min(x, window.innerWidth - t.width - 8));
+    let y = b.bottom + 8;
+    if(y + t.height > window.innerHeight - 8) y = b.top - t.height - 8;  // 下に入らなければ上に出す
+    el.style.left = x+'px';
+    el.style.top  = y+'px';
+  }
+  function hideTip(){ const el=tip(); if(el) el.classList.remove('show'); }
+  document.addEventListener('DOMContentLoaded', ()=>{
+    document.querySelectorAll('nav.tabs button[data-tip]').forEach(btn=>{
+      btn.addEventListener('mouseenter', ()=>showTip(btn));
+      btn.addEventListener('mouseleave', hideTip);
+      btn.addEventListener('click', hideTip);
+      btn.addEventListener('focus', ()=>showTip(btn));   // キーボード操作でも出す
+      btn.addEventListener('blur', hideTip);
+    });
+    window.addEventListener('scroll', hideTip, {passive:true});
+  });
+})();
+
 function showTab(name){
   document.querySelectorAll('.view').forEach(v=>v.classList.remove('active'));
   document.getElementById('view-'+name).classList.add('active');
