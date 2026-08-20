@@ -47,6 +47,24 @@ nav.tabs button.active{background:var(--green-l);border-color:var(--green);color
 #tabTip.show{opacity:1;visibility:visible}
 @media print{#tabTip{display:none}}
 
+/* 設定画面：グループごとに切り替えて、1画面に出す量を減らす */
+.setnav{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:14px}
+.setnav button{flex:0 0 auto;background:#fff;border:2px solid var(--line);border-radius:999px;
+  padding:9px 16px;font-size:14px;font-weight:700;color:var(--sub);white-space:nowrap}
+.setnav button:hover{border-color:#b9c2cd}
+.setnav button.active{background:var(--green-l);border-color:var(--green);color:var(--green-d)}
+.setgrp{display:none}
+.setgrp.active{display:block}
+/* グループごとの色。カードの左端に色帯を出して、どこの設定か分かるようにする */
+.setgrp[data-sg="basic"]  .card{border-left:5px solid #6b7280}
+.setgrp[data-sg="master"] .card{border-left:5px solid #2f7d32}
+.setgrp[data-sg="alloc"]  .card{border-left:5px solid #1e6fb8}
+.setgrp[data-sg="data"]   .card{border-left:5px solid #b06f14}
+.setgrp .card.danger{border-left-color:#c62828;background:#fff8f8}
+.setgrp .card.danger h2{color:#c62828}
+.setgrp .card h3{margin-top:22px;padding-top:14px;border-top:1px dashed var(--line);font-size:16px}
+.setgrp .card h3:first-of-type{margin-top:18px}
+
 main{max-width:1080px;margin:0 auto;padding:16px 14px 80px}
 .view{display:none}
 .view.active{display:block}
@@ -590,12 +608,28 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
   <!-- ============ 設定 ============ -->
   <section id="view-settings" class="view">
+    <div class="setnav">
+      <button data-sg="basic"  onclick="showSetGroup('basic')">🏢 基本</button>
+      <button data-sg="master" onclick="showSetGroup('master')">🧩 作業・費目・業者</button>
+      <button data-sg="alloc"  onclick="showSetGroup('alloc')">⚖ 按分のしかた</button>
+      <button data-sg="data"   onclick="showSetGroup('data')">📥 取り込み・保存</button>
+    </div>
+
+    <div class="setgrp" data-sg="basic">
     <div class="card">
       <h2>🏢 事業所名</h2>
       <p class="hint">ここで設定した名前が、画面上部と印刷する書類（決算書類・収支・入金票）に入ります。2つの事業所を別会計で使う場合は、それぞれのアカウントで違う名前を設定してください。</p>
       <div class="row">
         <input type="text" id="setOfficeName" placeholder="例) ジョブきらめき" style="max-width:320px" onchange="onOfficeNameChange()">
       </div>
+      <h3>📅 年度</h3>
+      <div class="row">
+        <div class="grow" style="max-width:220px">
+          <label class="lbl">年度の始まりの月</label>
+          <select id="setFyStart" onchange="onFyStartChange()"></select>
+        </div>
+      </div>
+      <p class="hint">今は「10月はじまり（10月〜翌9月）」の設定です。</p>
     </div>
 
     <div class="card">
@@ -622,6 +656,9 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
     </div>
 
+    </div><!-- /basic -->
+
+    <div class="setgrp" data-sg="master">
     <div class="card">
       <h2>🧩 作業（売上の種類）</h2>
       <p class="hint">ここに登録した作業が、入力画面のボタンになります。使わなくなった作業は「休止」にすると、ボタンから消えます（過去のデータは残ります）。</p>
@@ -669,6 +706,9 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         登録したあと、業者ごとに<b>按分先</b>を決めてください。</p>
     </div>
 
+    </div><!-- /master -->
+
+    <div class="setgrp" data-sg="alloc">
     <div class="card">
       <h2>⚖ 共通の経費の分け方</h2>
       <p class="hint">食材費のように、いくつかの作業にまたがる経費は、入力のときに作業を<b>「共通」</b>にします。ここでその配分のしかたを決めます。<br>
@@ -707,17 +747,9 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
       <div class="tablewrap" style="margin-top:14px"><table id="wagePreviewTable"></table></div>
     </div>
+    </div><!-- /alloc -->
 
-    <div class="card">
-      <h2>📅 年度</h2>
-      <div class="row">
-        <div class="grow" style="max-width:220px">
-          <label class="lbl">年度の始まりの月</label>
-          <select id="setFyStart" onchange="onFyStartChange()"></select>
-        </div>
-      </div>
-      <p class="hint">今は「10月はじまり（10月〜翌9月）」の設定です。</p>
-    </div>
+    <div class="setgrp" data-sg="data">
 
     <div class="card">
       <h2>📥 データの取り込み・書き出し</h2>
@@ -783,12 +815,17 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <p class="hint">明細だけでなく、<b>作業・費目・業者・按分先・事業所名・決算整理までまるごと</b>保存します。パソコンを替えるときや、消してしまったときの備えに。<br>
         CSVは明細だけなので、元の状態に戻したいときはこちらを使ってください。</p>
 
-      <div class="row" style="margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)">
+    </div>
+
+    <div class="card danger">
+      <h2>⚠ 取り扱い注意</h2>
+      <div class="row">
         <button class="btn warn" onclick="clearAll()">🗑 明細をすべて消す</button>
       </div>
-      <p class="hint">試験運用中の一時的なボタンです。運用が固まったら削除します。<br>
-        <b>🗑</b> は<b>この事業所の明細をすべて</b>消します（作業・費目の設定は残ります）。もとに戻せないので、先に「💾 バックアップを保存」しておくと安心です。</p>
+      <p class="hint"><b>この事業所の明細をすべて</b>消します（作業・費目の設定は残ります）。
+        もとに戻せないので、先に「💾 バックアップを保存」しておいてください。</p>
     </div>
+    </div><!-- /data -->
   </section>
 </main>
 
@@ -3180,6 +3217,14 @@ function renderSettings(){
   onAllocChange(true);
   renderWageAlloc();
 
+  // どのグループを開いているか（前に開いていたものを覚えておく）
+  if(!document.querySelector('#view-settings .setgrp.active')){
+    let g = 'basic';
+    try{ g = localStorage.getItem('shuro_setgrp') || 'basic'; }catch(e){}
+    if(!document.querySelector(`#view-settings .setgrp[data-sg="${g}"]`)) g='basic';
+    showSetGroup(g);
+  }
+
   const fs=document.getElementById('setFyStart');
   fs.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('');
   fs.value = fyStart();
@@ -3326,8 +3371,23 @@ function syncTkcProd(c){
 }
 /** TKCの科目一覧までスクロールする */
 function jumpToTkc(){
-  const el = document.getElementById('tkcSection');
-  if(el){ el.scrollIntoView({behavior:'smooth', block:'start'}); }
+  showSetGroup('data');
+  setTimeout(()=>{
+    const el = document.getElementById('tkcSection');
+    if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 60);
+}
+/** 設定画面のグループを切り替える */
+function showSetGroup(name){
+  DB.settings.setGroup = name;
+  document.querySelectorAll('#view-settings .setgrp').forEach(g=>{
+    g.classList.toggle('active', g.dataset.sg===name);
+  });
+  document.querySelectorAll('.setnav button').forEach(b=>{
+    b.classList.toggle('active', b.dataset.sg===name);
+  });
+  try{ localStorage.setItem('shuro_setgrp', name); }catch(e){}
+  window.scrollTo(0,0);
 }
 
 function addPreset(){
