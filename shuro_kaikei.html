@@ -969,10 +969,20 @@ function welfareIncome(months){
   const w = DB.settings.welfareIncome || {};
   return months.reduce((s,m)=>s+(+w[m]||0), 0);
 }
-/** その費目のうち、生産活動が負担する割合（0〜1） */
+/** その明細のうち、生産活動が負担する割合（0〜1）。
+    明細に指定（e.pr／TKC取り込み分）があればそれを使い、無ければ費目の設定に従う。
+    同じ費目でも「帳簿の業者別＝生産100%」「TKCの残り＝按分」と分けられる。 */
+function prodRatioOf(e, prodIncome, welfare){
+  if(e && e.pr!=null) return prodRatioValue(e.pr, prodIncome, welfare);
+  const c = DB.costs.find(x=>x.id===(e?e.c:null));
+  return prodRatioValue(c ? c.prod : 'all', prodIncome, welfare);
+}
+/** 費目の設定値から割合を出す */
 function prodRatio(costId, prodIncome, welfare){
   const c = DB.costs.find(x=>x.id===costId);
-  const v = c ? c.prod : 'all';
+  return prodRatioValue(c ? c.prod : 'all', prodIncome, welfare);
+}
+function prodRatioValue(v, prodIncome, welfare){
   if(v==null || v==='all') return 1;
   if(v==='auto'){
     const t = prodIncome + welfare;
@@ -1416,7 +1426,7 @@ function calc(months){
   let welfareCut = 0;
   commonEntries.forEach(e=>{
     const m = e.d.slice(0,7);
-    const prodAmt = e.a * prodRatio(e.c, income, welfare);
+    const prodAmt = e.a * prodRatioOf(e, income, welfare);
     welfareCut += e.a - prodAmt;
     cost += prodAmt; costMonth[m]=(costMonth[m]||0)+prodAmt;
     // 明細ごとの按分先指定（業者単位）があればそれを優先し、無ければ費目の設定を使う
@@ -2048,7 +2058,7 @@ function calcStd(fy){
       const s = stdOf(e.c);
       const isDirect = e.j && e.j!==COMMON_JOB.id && sales[e.j]!==undefined;
       let a = e.a;
-      if(!isDirect){ a = e.a * prodRatio(e.c, income, welfare); welfareCut += e.a - a; }
+      if(!isDirect){ a = e.a * prodRatioOf(e, income, welfare); welfareCut += e.a - a; }
       put(s.grp, s.std, a, e.j, entryTargets(e), e.c);
     }
     else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null, jid); } // 工賃は全作業へ売上比で按分
@@ -2603,7 +2613,7 @@ function jobLedger(months, jobId, withWage){
         if(!t.includes(jobId)) return;
         let base=0; t.forEach(id=> base += weight(id));
         if(base<=0) return;
-        const pr = prodRatio(e.c, income, welfare);
+        const pr = prodRatioOf(e, income, welfare);
         const w  = weight(jobId)/base;
         const share = e.a * pr * w;
         if(!share) return;
@@ -3738,8 +3748,16 @@ async function importTkcPdf(ev){
       found.cols.forEach((col,i)=>{
         const v = vals[i];
         if(v==null || !col.year) return;
+        const ym = `${col.year}-${String(col.m).padStart(2,'0')}`;
         const row = { code:a.code, name:a.name, year:col.year, month:col.m, amount:v };
-        if(a.kind==='welfare') welfare.push(row); else list.push(row);
+        if(a.kind==='welfare'){ welfare.push(row); return; }
+        // 帳簿に手で入っている分（業者別など）と重なっていないか見る
+        row.booked = tkcBooked(a.name, ym);
+        if(a.net && row.booked){
+          row.gross  = v;
+          row.amount = Math.max(0, v - row.booked);
+        }
+        list.push(row);
       });
     });
     if(!list.length && !welfare.length){ st.textContent=''; alert('金額を読み取れませんでした。PDFの形式が違うかもしれません。'); return; }
@@ -3768,19 +3786,42 @@ function showTkcPreview(){
       <td style="text-align:right">${yen(r.amount)}</td></tr>`;
   });
   p.list.forEach(r=>{
+    const note = r.gross!=null
+      ? `<br><span style="color:var(--sub);font-size:11px">全体 ${yen(r.gross)} − 帳簿 ${yen(r.booked)} = ${yen(r.amount)}</span>`
+      : (r.booked ? `<br><span style="color:var(--orange);font-size:11px">⚠ 帳簿にも ${yen(r.booked)} 入っています（二重計上のおそれ）</span>` : '');
     h += `<tr><td style="text-align:left">${r.year}年${r.month}月</td>
-      <td style="text-align:left">${esc(r.name)}<span style="color:var(--sub);font-size:12px"> (${esc(r.code)})</span></td>
+      <td style="text-align:left">${esc(r.name)}<span style="color:var(--sub);font-size:12px"> (${esc(r.code)})</span>${note}</td>
       <td style="text-align:right">${yen(r.amount)}</td></tr>`;
   });
   document.getElementById('tkcPreview').innerHTML = h + `</tbody>`;
   const dup = p.list.filter(r=>DB.entries.some(e=>e.tkc===tkcKey(p.dept,r))).length;
-  document.getElementById('tkcDup').innerHTML = (dup
+  // 帳簿に同じ費目が入っているのに差し引いていない科目 ＝ 二重計上のおそれ
+  const risky = [...new Set(p.list.filter(r=>r.booked && r.gross==null).map(r=>`${r.code} ${r.name}`))];
+  const warn = risky.length
+    ? `<div class="banner warn" style="margin-bottom:10px">⚠ <b>${esc(risky.join('、'))}</b> は、
+       帳簿（出納帳）にも同じ費目の明細が入っています。このまま取り込むと<b>二重計上</b>になります。<br>
+       科目一覧で<b>「帳簿の分を差し引く」にチェック</b>を入れると、重なっていない分だけを取り込めます。</div>`
+    : '';
+  document.getElementById('tkcDup').innerHTML = warn + (dup
     ? `※ このうち <b>${dup}件</b> は前に取り込んだ分なので、二重にはならず<b>新しい金額に置き換わります</b>。`
     : '') + tkcCoverageHtml(p.cv, p.months);
   document.getElementById('tkcModal').classList.add('open');
 }
 /** 同じ部門・科目・月なら同じ鍵。入れ直したとき二重にしないために使う */
 function tkcKey(dept, r){ return `${dept}|${r.code}|${r.year}-${String(r.month).padStart(2,'0')}`; }
+/**
+ * その費目で、その月に「帳簿（出納帳）に手で入っている」金額の合計。
+ * TKCから取り込んだ分（e.tkc）は数えない。
+ * TKCの科目は事業所全体の合計なので、帳簿に業者別で入っている分と重なる。
+ * 差し引いて取り込めば、二重計上せずに残り（＝共通で按分すべき分）だけを入れられる。
+ */
+function tkcBooked(costName_, ym){
+  const c = DB.costs.find(x=>x.name===costName_);
+  if(!c) return 0;
+  return DB.entries
+    .filter(e=>e.t==='out' && !e.tkc && e.c===c.id && e.d.slice(0,7)===ym)
+    .reduce((s,e)=>s+e.a, 0);
+}
 /** その月の末日 */
 function monthEnd(year, month){
   const d = new Date(year, month, 0);
@@ -3812,6 +3853,9 @@ async function commitTkcImport(){
       c: cid,
       m: `${r.name}（TKC ${r.year}年${r.month}月）`,
       p: '', tkc: key,
+      // 科目一覧で決めた扱いを、この明細に持たせる。
+      // 同じ費目に帳簿の明細（生産100%など）が混ざっていても取り違えない。
+      pr: (acct && acct.prod!=null) ? acct.prod : 'all',
       ts: new Date().toISOString()
     });
   });
@@ -3872,6 +3916,18 @@ function setTkcMode(i, mode){
   syncCostProd(a);
   saveMaster(); renderAll();
 }
+/** その費目に、帳簿（出納帳）へ手で入れた明細があるか */
+function hasBooked(name){
+  const c = DB.costs.find(x=>x.name===name);
+  if(!c) return false;
+  return DB.entries.some(e=>e.t==='out' && !e.tkc && e.c===c.id);
+}
+/** 「帳簿の分を差し引く」の切り替え */
+function setTkcNet(i, on){
+  const a = tkcAccounts()[i]; if(!a) return;
+  a.net = !!on;
+  saveMaster(); renderTkcTable();
+}
 /** 手入力の％を変える */
 function setTkcPct(i, v){
   const a = tkcAccounts()[i]; if(!a) return;
@@ -3882,6 +3938,9 @@ function setTkcPct(i, v){
 /** 一覧で決めた按分を、対応する費目にも反映する（費目側の設定と食い違わないように） */
 function syncCostProd(a){
   if(a.kind!=='cost') return;
+  // 帳簿の分を差し引く科目は、同じ費目に「業者別＝生産100%」の明細が混ざっている。
+  // 費目の設定を上書きすると、その帳簿分まで按分されてしまうので触らない。
+  if(a.net) return;
   const c = DB.costs.find(x=>x.name===a.name);
   if(c) c.prod = (a.prod==null) ? 'all' : a.prod;
 }
@@ -3924,6 +3983,10 @@ function renderTkcTable(){
         </select>` +
         (mode==='manual'
           ? ` <input type="number" min="0" max="100" step="0.1" value="${+a.prod}" onchange="setTkcPct(${i},this.value)" style="padding:6px;width:70px">%`
+          : '')
+        + (mode!=='skip' && mode!=='welfare' && hasBooked(a.name)
+          ? `<br><label style="cursor:pointer;font-size:12px;color:var(--sub)" title="帳簿に業者別で入っている分を引いて、重なっていない分だけを取り込みます">
+               <input type="checkbox" ${a.net?'checked':''} onchange="setTkcNet(${i},this.checked)"> 帳簿の分を差し引く</label>`
           : '') + `</td>
       <td style="text-align:right;color:var(--sub);font-size:12px">${a.amt!=null?yen(a.amt):''}</td>
       <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="delTkcAccount(${i})">削除</button></td>
