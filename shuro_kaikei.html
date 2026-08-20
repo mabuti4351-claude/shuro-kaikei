@@ -404,10 +404,16 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <div class="grow" style="max-width:200px">
           <label class="lbl">作業</label><select id="jlJob" onchange="renderJobLedger()"></select>
         </div>
+        <div class="grow" style="max-width:260px">
+          <label class="lbl">利用者工賃</label>
+          <label style="cursor:pointer;display:block;padding:10px 0">
+            <input type="checkbox" id="jlWage" onchange="onJlWageChange()"> 売上比で按分して入れる</label>
+        </div>
       </div>
       <p class="hint" style="margin-top:10px">その作業の<b>売上・直接の経費・按分された共通経費</b>を、日付順に並べます。<br>
         共通経費は「①福祉事業と分けたあとの生産活動分 × 売上の比率」で、この作業の負担額を出しています。
-        計算の内訳は各行に出しています。<b>利用者工賃は作業に分けない</b>方針のため、ここには出ません。</p>
+        計算の内訳は各行に出しています。</p>
+      <p class="hint" id="jlWageHint"></p>
       <div class="row noprint" style="margin-top:6px">
         <button class="btn sub" onclick="exportJobLedgerCsv()">📤 この表をCSVで書き出し</button>
         <span class="hint" id="jlSummary" style="margin:0"></span>
@@ -2571,7 +2577,7 @@ function filteredEntries(){
  * ある作業の明細を日付順に返す。
  * 共通経費は「①生産活動分 × ②売上の比率」でこの作業の負担額にする。
  */
-function jobLedger(months, jobId){
+function jobLedger(months, jobId, withWage){
   const set = new Set(months);
   const rows = DB.entries.filter(e=>set.has(e.d.slice(0,7)));
   // 期間の売上（按分の重み）
@@ -2606,6 +2612,15 @@ function jobLedger(months, jobId){
           note:`${costName(e.c)}｜全体 ${yen(e.a)}` + (pr<1 ? ` × 生産 ${(pr*100).toFixed(1)}%` : '')
                + only + `　［${info.src}］`});
       }
+    }else if(e.t==='wage' && withWage){
+      // 利用者工賃は特定の作業に紐づかないので、全作業へ売上比で配る（表4と同じ考え方）
+      let base=0; DB.jobs.forEach(j=> base += weight(j.id));
+      if(base<=0) return;
+      const w = weight(jobId)/base;
+      const share = e.a * w;
+      if(!share) return;
+      out.push({e, d:e.d, m:e.m||'利用者工賃', kind:'工賃（按分）', inAmt:0, direct:0, share,
+        note:`利用者工賃｜全体 ${yen(e.a)} × 売上比 ${(w*100).toFixed(1)}%　［全作業へ配分］`});
     }
   });
   out.sort((a,b)=> a.d.localeCompare(b.d) || (a.e.ts||'').localeCompare(b.e.ts||''));
@@ -2624,6 +2639,12 @@ function renderJobLedgerSelectors(){
   const js=document.getElementById('jlJob'), keepJ=js.value;
   js.innerHTML = DB.jobs.map(j=>`<option value="${j.id}">${esc(j.name)}</option>`).join('');
   if(keepJ && DB.jobs.some(j=>j.id===keepJ)) js.value = keepJ;
+  document.getElementById('jlWage').checked = !!DB.settings.jlWithWage;
+}
+/** 「工賃も入れる」の切り替え（次に開いたときも同じ状態にする） */
+function onJlWageChange(){
+  DB.settings.jlWithWage = document.getElementById('jlWage').checked;
+  saveMaster(); renderJobLedger();
 }
 /** いま選ばれている期間の 'YYYY-MM' 配列 */
 function jlMonths(){
@@ -2643,13 +2664,20 @@ function renderJobLedger(){
     document.getElementById('jlSummary').textContent = '';
     return;
   }
-  const list = jobLedger(jlMonths(), jobId);
+  const withWage = document.getElementById('jlWage').checked;
+  document.getElementById('jlWageHint').innerHTML = withWage
+    ? '利用者工賃を<b>売上比で全作業に配分</b>して入れています。<b>決算（表4）と同じ考え方</b>なので、'
+      + '差引はその作業の<b>最終的な損益</b>になります。'
+    : '利用者工賃は<b>入れていません</b>。差引は「その作業が生み出した<b>工賃の原資</b>」を表します。'
+      + 'なお<b>決算（表4）では売上比で配分されます</b>。';
+  const list = jobLedger(jlMonths(), jobId, withWage);
   let inS=0, dS=0, aS=0, bal=0;
   let h = `<thead><tr><th style="white-space:nowrap">日付</th>
     <th style="text-align:left;min-width:120px">摘要</th>
     <th style="text-align:left;min-width:200px">内訳</th>
     <th style="white-space:nowrap">売上</th><th style="white-space:nowrap">この作業の経費</th>
-    <th style="white-space:nowrap">共通からの按分</th><th style="white-space:nowrap">差引残高</th></tr></thead><tbody>`;
+    <th style="white-space:nowrap">${withWage?'共通・工賃の按分':'共通からの按分'}</th>
+    <th style="white-space:nowrap">差引残高</th></tr></thead><tbody>`;
   if(!list.length) h += `<tr><td colspan="7" style="text-align:center;color:var(--sub);padding:24px">この期間の明細がありません</td></tr>`;
   list.forEach(r=>{
     inS+=r.inAmt; dS+=r.direct; aS+=r.share;
@@ -2669,15 +2697,17 @@ function renderJobLedger(){
   tbl.innerHTML = h + `</tbody>`;
   const job = jobById(jobId);
   document.getElementById('jlSummary').textContent =
-    `${job?job.name:''}：売上 ${yen(inS)} − この作業の経費 ${yen(dS)} − 按分 ${yen(aS)} = ${yen(inS-dS-aS)}`;
+    `${job?job.name:''}：売上 ${yen(inS)} − この作業の経費 ${yen(dS)} − ${withWage?'按分（共通・工賃）':'按分'} ${yen(aS)} = ${yen(inS-dS-aS)}`;
 }
 
 function exportJobLedgerCsv(){
   const jobId = document.getElementById('jlJob').value;
   if(!jobId){ alert('作業がありません。'); return; }
-  const list = jobLedger(jlMonths(), jobId);
+  const withWage = document.getElementById('jlWage').checked;
+  const list = jobLedger(jlMonths(), jobId, withWage);
   const job = jobById(jobId);
-  const head = ['日付','摘要','内訳','売上','この作業の経費','共通からの按分','差引残高'];
+  const head = ['日付','摘要','内訳','売上','この作業の経費',
+                withWage?'共通・工賃の按分':'共通からの按分','差引残高'];
   const lines = [head.join(',')];
   let bal=0;
   list.forEach(r=>{
