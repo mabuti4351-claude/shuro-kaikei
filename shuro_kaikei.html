@@ -30,6 +30,8 @@ header .spacer{flex:1}
 header .hbtn{background:rgba(255,255,255,.18);border:1px solid rgba(255,255,255,.35);color:#fff;
   border-radius:8px;padding:6px 12px;font-size:13px}
 header .hbtn:hover{background:rgba(255,255,255,.3)}
+header .hbtn:disabled{opacity:.35;cursor:default}
+header .hbtn:disabled:hover{background:rgba(255,255,255,.18)}
 .badge{font-size:12px;opacity:.9;white-space:nowrap}
 
 /* ===== タブ ===== */
@@ -180,6 +182,8 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
   <span class="spacer"></span>
   <span class="badge" id="wsBadge"></span>
   <span class="badge" id="syncBadge"></span>
+  <button class="hbtn" id="undoBtn" onclick="doUndo()" disabled>↩ 元に戻す</button>
+  <button class="hbtn" id="redoBtn" onclick="doRedo()" disabled>↪ やり直す</button>
   <button class="hbtn" id="installBtn" onclick="installApp()">⬇ デスクトップに追加</button>
   <button class="hbtn" id="logoutBtn" onclick="doLogout()" style="display:none">ログアウト</button>
 </header>
@@ -1122,9 +1126,108 @@ function loadLocal(){
   DB.settings = Object.assign(defaultSettings(), DB.settings||{});
 }
 function saveLocal(){
+  captureUndo();
   try{ localStorage.setItem(LS_KEY, JSON.stringify(DB)); }
   catch(e){ alert('保存できませんでした: '+e.message); }
 }
+
+/* ============ 元に戻す／やり直す ============ */
+/* 保存のたびに、直前の状態を控えておく。
+   saveLocal を通る操作はすべて拾えるので、入れ忘れが起きない。 */
+const UNDO_MAX = 30;
+let _undo = [], _redo = [], _lastState = null, _restoring = false, _syncing = false;
+
+function snapState(){
+  return JSON.stringify({entries:DB.entries, jobs:DB.jobs, costs:DB.costs,
+                         presets:DB.presets, settings:DB.settings});
+}
+function captureUndo(){
+  const now = snapState();
+  // 復元中と、クラウドから降りてきた変更は履歴に積まない
+  if(_restoring || _syncing || _lastState===null){ _lastState = now; renderUndoBtns(); return; }
+  if(_lastState === now) return;        // 中身が変わっていなければ積まない
+  _undo.push(_lastState);
+  if(_undo.length > UNDO_MAX) _undo.shift();
+  _redo = [];
+  _lastState = now;
+  renderUndoBtns();
+}
+/** 2つの状態を見比べて、何をしたのかを短く言い表す */
+function stateDiffLabel(fromJson, toJson){
+  try{
+    const a=JSON.parse(fromJson), b=JSON.parse(toJson);
+    const d = b.entries.length - a.entries.length;
+    if(d>0) return `明細を${d}件ふやした`;
+    if(d<0) return `明細を${-d}件けした`;
+    const ids = new Set(a.entries.map(e=>e.id));
+    const changed = b.entries.filter(e=>{
+      const o = a.entries.find(x=>x.id===e.id);
+      return !o || JSON.stringify(o)!==JSON.stringify(e);
+    }).length;
+    if(changed) return `明細${changed}件の内容をなおした`;
+    if(JSON.stringify(a.costs)!==JSON.stringify(b.costs))     return '費目の設定をかえた';
+    if(JSON.stringify(a.jobs)!==JSON.stringify(b.jobs))       return '作業の設定をかえた';
+    if(JSON.stringify(a.presets)!==JSON.stringify(b.presets)) return '業者の設定をかえた';
+    if(JSON.stringify(a.settings)!==JSON.stringify(b.settings)) return '設定をかえた';
+  }catch(e){}
+  return 'ひとつ前の操作';
+}
+function renderUndoBtns(){
+  const u=document.getElementById('undoBtn'), r=document.getElementById('redoBtn');
+  if(!u||!r) return;
+  u.disabled = !_undo.length;
+  r.disabled = !_redo.length;
+  const cur = _lastState || snapState();
+  u.title = _undo.length ? `「${stateDiffLabel(_undo[_undo.length-1], cur)}」を取り消します（${_undo.length}回ぶん戻せます）`
+                         : '戻せる操作はありません';
+  r.title = _redo.length ? `取り消した「${stateDiffLabel(cur, _redo[_redo.length-1])}」をやり直します`
+                         : 'やり直せる操作はありません';
+}
+/** 控えておいた状態に戻す。クラウドにも反映する。 */
+async function applyState(json){
+  _restoring = true;
+  const beforeIds = DB.entries.map(e=>e.id);
+  const s = JSON.parse(json);
+  DB.entries = s.entries; DB.jobs = s.jobs; DB.costs = s.costs;
+  DB.presets = s.presets; DB.settings = s.settings;
+  _lastState = json;
+  saveLocal();
+  if(cloudOn()){
+    const nowIds = new Set(DB.entries.map(e=>e.id));
+    const gone = beforeIds.filter(id=>!nowIds.has(id));
+    try{
+      await saveMaster();
+      if(gone.length) await removeEntries(gone);
+      if(DB.entries.length) await putEntries(DB.entries);
+    }catch(e){ console.error(e); }
+  }
+  _restoring = false;
+  _lastState = snapState();
+  renderAll(); renderUndoBtns();
+}
+async function doUndo(){
+  if(!_undo.length) return;
+  const label = stateDiffLabel(_undo[_undo.length-1], _lastState||snapState());
+  _redo.push(_lastState || snapState());
+  await applyState(_undo.pop());
+  toast(`元に戻しました（${label}）`);
+}
+async function doRedo(){
+  if(!_redo.length) return;
+  _undo.push(_lastState || snapState());
+  await applyState(_redo.pop());
+  toast('やり直しました');
+}
+/* Ctrl+Z / Ctrl+Y でも操作できる。
+   文字を打っている最中は、その入力欄の取り消しを邪魔しないよう何もしない。 */
+document.addEventListener('keydown', e=>{
+  if(!(e.ctrlKey || e.metaKey)) return;
+  const t = e.target;
+  if(t && (t.tagName==='INPUT' || t.tagName==='TEXTAREA' || t.isContentEditable)) return;
+  const k = (e.key||'').toLowerCase();
+  if(k==='z' && !e.shiftKey){ e.preventDefault(); doUndo(); }
+  else if(k==='y' || (k==='z' && e.shiftKey)){ e.preventDefault(); doRedo(); }
+});
 
 /**
  * クラウド保存の失敗をはっきり知らせる。
@@ -1271,17 +1374,20 @@ async function startCloudSync(){
   if(_unsubWs) _unsubWs();
   _unsubWs = wsDoc().onSnapshot(snap=>{
     const d = snap.data(); if(!d) return;
+    _syncing = true;   // クラウドから降りてきた変更は「元に戻す」の履歴に積まない
     if(d.jobs && d.jobs.length) DB.jobs = d.jobs;
     if(d.costs && d.costs.length) DB.costs = d.costs;
     if(d.presets) DB.presets = d.presets;
     if(d.settings) DB.settings = Object.assign(defaultSettings(), d.settings);
-    saveLocal(); renderAll();
+    saveLocal(); _syncing = false; renderAll();
   }, e=>{ console.error(e); setSync('⚠ 同期エラー'); });
 
   if(_unsubEnt) _unsubEnt();
   _unsubEnt = entCol().onSnapshot(snap=>{
+    _syncing = true;
     DB.entries = snap.docs.map(d=>d.data());
-    saveLocal(); setSync('🔄 同期中'); renderAll();
+    saveLocal(); _syncing = false;
+    setSync('🔄 同期中'); renderAll();
     fixDepositYearTypo();
   }, e=>{ console.error(e); setSync('⚠ 同期エラー'); });
 }
