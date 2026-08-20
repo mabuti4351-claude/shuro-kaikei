@@ -686,6 +686,29 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     </div>
 
     <div class="card">
+      <h2>👷 利用者工賃の分け方</h2>
+      <p class="hint">工賃を<b>作業ごとの損益</b>に振り分けるときの決め方です。収支タブの「工賃後の損益」と、
+        作業別タブ・決算（表4）の作業別の列に効きます。<b>支払う工賃の総額は変わりません。</b><br>
+        工賃は利用者の作業に対して支払うものなので、本来は<b>「利用者がどれだけその作業に関わったか」</b>で
+        分けるのが実態に合います。時間を測るのが難しければ、下の目安から選んでください。</p>
+      <div class="row">
+        <select id="setWageAlloc" onchange="onWageAllocChange()" style="max-width:420px">
+          <option value="sales">売上の比率で分ける</option>
+          <option value="gross">粗利の比率で分ける</option>
+          <option value="manual">自分で決めた比率で分ける（人数・時間など）</option>
+          <option value="equal">作業ごとに均等に分ける</option>
+        </select>
+      </div>
+      <p class="hint" id="wageAllocNote" style="margin-top:8px"></p>
+      <div id="wageManual" style="display:none;margin-top:12px">
+        <div class="tablewrap"><table id="wageRatioTable"></table></div>
+        <p class="hint">その作業に関わっている<b>利用者の人数</b>や<b>おおよその作業時間</b>を入れるのがおすすめです。
+          合計が100になっていなくても、比率として計算します。</p>
+      </div>
+      <div class="tablewrap" style="margin-top:14px"><table id="wagePreviewTable"></table></div>
+    </div>
+
+    <div class="card">
       <h2>📅 年度</h2>
       <div class="row">
         <div class="grow" style="max-width:220px">
@@ -994,6 +1017,31 @@ function prodRatioValue(v, prodIncome, welfare){
   }
   const n = +v;
   return isFinite(n) ? Math.max(0, Math.min(100, n))/100 : 1;
+}
+/* ---- 利用者工賃を作業に分けるときの重み ----
+   工賃は利用者の作業に対して払うものなので、本来は従事の度合いで分けるのが実態に合う。
+   時間が測れないときのために、売上比・粗利比・均等も選べるようにしている。 */
+function wageWeightOf(jobId, sales, grossByJob){
+  switch(DB.settings.wageAlloc || 'sales'){
+    case 'equal':  return 1;
+    case 'manual': return +(DB.settings.wageRatio||{})[jobId] || 0;
+    case 'gross':  return Math.max(0, (grossByJob||{})[jobId] || 0);  // 赤字の作業は0にする
+    default:       return (sales||{})[jobId] || 0;
+  }
+}
+/** 工賃を各作業へ配る。重みが全部0のときは売上比に戻す（配れないより良い） */
+function spreadWage(wage, sales, grossByJob){
+  const out = {}; DB.jobs.forEach(j=>out[j.id]=0);
+  if(!wage) return out;
+  let base = 0; DB.jobs.forEach(j=> base += wageWeightOf(j.id, sales, grossByJob));
+  if(base <= 0){
+    base = 0; DB.jobs.forEach(j=> base += (sales[j.id]||0));
+    if(base<=0) return out;
+    DB.jobs.forEach(j=>{ out[j.id] = wage * (sales[j.id]||0) / base; });
+    return out;
+  }
+  DB.jobs.forEach(j=>{ out[j.id] = wage * wageWeightOf(j.id, sales, grossByJob) / base; });
+  return out;
 }
 /** 今の年度で「収入比で自動」にしたときの割合。分からないときは null */
 function currentProdRatio(){
@@ -1564,16 +1612,10 @@ function calc(months){
   }
   const allocatedSum = DB.jobs.reduce((s,j)=>s+allocated[j.id],0);
 
-  // 利用者工賃を売上比で作業に配ったときの額（作業ごとの最終損益を出すため）
-  const wageByJob = {};
-  DB.jobs.forEach(j=>wageByJob[j.id]=0);
-  {
-    let base=0; DB.jobs.forEach(j=> base += (alloc==='manual' ? (+(DB.settings.allocRatio||{})[j.id]||0) : (sales[j.id]||0)));
-    if(base>0) DB.jobs.forEach(j=>{
-      const w = alloc==='manual' ? (+(DB.settings.allocRatio||{})[j.id]||0) : (sales[j.id]||0);
-      wageByJob[j.id] = wage * w / base;
-    });
-  }
+  // 利用者工賃を作業に配ったときの額（作業ごとの最終損益を出すため）
+  const grossByJob = {};
+  DB.jobs.forEach(j=>{ grossByJob[j.id] = (sales[j.id]||0) - (direct[j.id]||0) - (allocated[j.id]||0); });
+  const wageByJob = spreadWage(wage, sales, grossByJob);
 
   const jobRows = DB.jobs.map(j=>{
     const s=sales[j.id]||0, d=direct[j.id]||0, a=allocated[j.id]||0, wj=wageByJob[j.id]||0;
@@ -2187,7 +2229,7 @@ function calcStd(fy){
       if(!isDirect){ a = e.a * prodRatioOf(e, income, welfare); welfareCut += e.a - a; }
       put(s.grp, s.std, a, e.j, entryTargets(e), e.c);
     }
-    else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null, jid); } // 工賃は全作業へ売上比で按分
+    else if(e.t==='wage'){ put('労務費','利用者工賃', e.a, null, jid); } // 工賃の作業別配分は下で入れ替える
   });
 
   /** 科目の作業別内訳（共通分は指定された按分先へ売上比で配る） */
@@ -2220,7 +2262,20 @@ function calcStd(fy){
   const currentMaterialJ = addTo(addTo(spread(d.openMat), matPurchaseJ), spread(-d.closeMat));
 
   // ---- II 労務費 ----
+  // 利用者工賃の作業別は、設定した分け方（売上比／粗利比／手入力／均等）に合わせる
   const laborItems = STD_ITEMS['労務費'].map(s=>({name:s, total:amt('労務費',s), job:byJob('労務費',s)}));
+  {
+    const wi = laborItems.find(x=>x.name==='利用者工賃');
+    if(wi && wi.total){
+      // 粗利比のときは、工賃を引く前の作業別粗利が要る
+      let grossJ = null;
+      if((DB.settings.wageAlloc||'sales')==='gross'){
+        const cc = calc(months); grossJ = {};
+        jid.forEach(id=>{ const r=cc.jobRows.find(x=>x.id===id); grossJ[id]= r?r.gross:0; });
+      }
+      wi.job = spreadWage(wi.total, sales, grossJ);
+    }
+  }
   const currentLabor = laborItems.reduce((s,x)=>s+x.total,0);
   const currentLaborJ = laborItems.reduce((o,x)=>addTo(o,x.job), zero());
 
@@ -2724,6 +2779,15 @@ function jobLedger(months, jobId, withWage){
   const alloc = DB.settings.alloc || 'sales';
   const ratio = DB.settings.allocRatio || {};
   const weight = id => alloc==='manual' ? (+ratio[id]||0) : (sales[id]||0);
+  // 工賃を粗利比で分けるときのために、先に各作業の粗利を出しておく（収支タブと同じ計算）
+  const grossForWage = {};
+  if(withWage){
+    const c = calc(months);
+    DB.jobs.forEach(j=>{
+      const r = c.jobRows.find(x=>x.id===j.id);
+      grossForWage[j.id] = r ? r.gross : 0;
+    });
+  }
 
   const out = [];
   rows.forEach(e=>{
@@ -2749,14 +2813,12 @@ function jobLedger(months, jobId, withWage){
                + only + `　［${info.src}］`});
       }
     }else if(e.t==='wage' && withWage){
-      // 利用者工賃は特定の作業に紐づかないので、全作業へ売上比で配る（表4と同じ考え方）
-      let base=0; DB.jobs.forEach(j=> base += weight(j.id));
-      if(base<=0) return;
-      const w = weight(jobId)/base;
-      const share = e.a * w;
+      // 利用者工賃は特定の作業に紐づかないので、設定した分け方で全作業へ配る
+      const shares = spreadWage(e.a, sales, grossForWage);
+      const share = shares[jobId] || 0;
       if(!share) return;
       out.push({e, d:e.d, m:e.m||'利用者工賃', kind:'工賃（按分）', inAmt:0, direct:0, share,
-        note:`利用者工賃｜全体 ${yen(e.a)} × 売上比 ${(w*100).toFixed(1)}%　［全作業へ配分］`});
+        note:`利用者工賃｜全体 ${yen(e.a)} × ${wageAllocLabel()} ${(share/e.a*100).toFixed(1)}%　［全作業へ配分］`});
     }
   });
   out.sort((a,b)=> a.d.localeCompare(b.d) || (a.e.ts||'').localeCompare(b.e.ts||''));
@@ -3116,6 +3178,7 @@ function renderSettings(){
 
   document.getElementById('setAlloc').value = DB.settings.alloc||'sales';
   onAllocChange(true);
+  renderWageAlloc();
 
   const fs=document.getElementById('setFyStart');
   fs.innerHTML = Array.from({length:12},(_,i)=>`<option value="${i+1}">${i+1}月</option>`).join('');
@@ -3324,6 +3387,68 @@ function onAllocChange(silent){
   if(!silent){ saveMaster(); renderAll(); }
 }
 function setRatio(id,v){ DB.settings.allocRatio=DB.settings.allocRatio||{}; DB.settings.allocRatio[id]=+v||0; saveMaster(); renderAll(); }
+
+/* ---- 利用者工賃の分け方 ---- */
+function wageAllocLabel(){
+  return {sales:'売上比', gross:'粗利比', manual:'決めた比率', equal:'均等'}[DB.settings.wageAlloc||'sales'];
+}
+function onWageAllocChange(silent){
+  const v = document.getElementById('setWageAlloc').value;
+  DB.settings.wageAlloc = v;
+  if(!silent){ saveMaster(); renderAll(); }
+  else renderWageAlloc();
+}
+function setWageRatio(id, v){
+  DB.settings.wageRatio = DB.settings.wageRatio || {};
+  DB.settings.wageRatio[id] = +v || 0;
+  saveMaster(); renderAll();
+}
+/** 設定画面：分け方の説明と、いまの年度で試した結果を出す */
+function renderWageAlloc(){
+  const sel = document.getElementById('setWageAlloc');
+  if(!sel) return;
+  const mode = DB.settings.wageAlloc || 'sales';
+  sel.value = mode;
+  document.getElementById('wageAllocNote').innerHTML = {
+    sales: '売上の大きい作業ほど多く負担します。分かりやすい反面、<b>手間のかかる作業と売上が比例しない</b>と実態からずれます。',
+    gross: '粗利の大きい作業ほど多く負担します。工賃の原資は粗利なので<b>「払える力に応じて負担する」</b>考え方です。'
+         + 'どの作業も工賃後の率が同じになるため、<b>特定の作業だけが赤字に見える偏りが出ません</b>。赤字の作業には配りません。',
+    manual: '実態に合わせて自由に決められます。<b>その作業に関わっている利用者の人数や作業時間</b>を入れると、基準としてもっとも説明しやすくなります。',
+    equal: '作業の数で均等に割ります。作業ごとの規模に差がないときだけ向いています。'
+  }[mode] || '';
+  document.getElementById('wageManual').style.display = mode==='manual' ? '' : 'none';
+
+  if(mode==='manual'){
+    const r = DB.settings.wageRatio || {};
+    let h=`<thead><tr><th style="text-align:left">作業</th><th>比率（人数・時間など）</th></tr></thead><tbody>`;
+    DB.jobs.forEach(j=>{
+      h+=`<tr><td style="text-align:left">${esc(j.name)}</td>
+        <td><input type="number" value="${r[j.id]||0}" min="0" step="0.1" onchange="setWageRatio('${j.id}',this.value)" style="width:110px;text-align:right;padding:6px"></td></tr>`;
+    });
+    document.getElementById('wageRatioTable').innerHTML = h+`</tbody>`;
+  }
+
+  // いまの年度で、この分け方だとどうなるかを見せる
+  const c = calc(fyMonths(fyOf(todayISO())));
+  const tbl = document.getElementById('wagePreviewTable');
+  if(!c.wage || !c.jobRows.length){
+    tbl.innerHTML = `<tbody><tr><td style="text-align:center;color:var(--sub);padding:16px">
+      今年度のデータがまだないので、試した結果は出せません。</td></tr></tbody>`;
+    return;
+  }
+  let h=`<thead><tr><th style="text-align:left">作業</th><th>粗利</th><th>この分け方での工賃</th><th>工賃後の損益</th></tr></thead><tbody>`;
+  c.jobRows.slice().sort((a,b)=>b.sales-a.sales).forEach(r=>{
+    h+=`<tr><td style="text-align:left">${esc(r.name)}</td>
+      <td class="num">${num(r.gross)}</td>
+      <td class="num minus">${num(-r.wage)}</td>
+      <td class="num ${r.net<0?'minus':''}"><b>${num(r.net)}</b></td></tr>`;
+  });
+  h+=`<tr class="total"><td style="text-align:left">合計</td>
+    <td class="num">${num(c.jobRows.reduce((s,r)=>s+r.gross,0))}</td>
+    <td class="num minus">${num(-c.wage)}</td>
+    <td class="num ${c.balance<0?'minus':''}"><b>${num(c.balance)}</b></td></tr>`;
+  tbl.innerHTML = h+`</tbody>`;
+}
 function onFyStartChange(){ DB.settings.fyStart=+document.getElementById('setFyStart').value; saveMaster(); renderAll(); }
 
 function onOfficeNameChange(){
