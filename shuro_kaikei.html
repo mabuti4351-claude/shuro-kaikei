@@ -1458,9 +1458,21 @@ function calc(months){
   }
   const allocatedSum = DB.jobs.reduce((s,j)=>s+allocated[j.id],0);
 
+  // 利用者工賃を売上比で作業に配ったときの額（作業ごとの最終損益を出すため）
+  const wageByJob = {};
+  DB.jobs.forEach(j=>wageByJob[j.id]=0);
+  {
+    let base=0; DB.jobs.forEach(j=> base += (alloc==='manual' ? (+(DB.settings.allocRatio||{})[j.id]||0) : (sales[j.id]||0)));
+    if(base>0) DB.jobs.forEach(j=>{
+      const w = alloc==='manual' ? (+(DB.settings.allocRatio||{})[j.id]||0) : (sales[j.id]||0);
+      wageByJob[j.id] = wage * w / base;
+    });
+  }
+
   const jobRows = DB.jobs.map(j=>{
-    const s=sales[j.id]||0, d=direct[j.id]||0, a=allocated[j.id]||0;
-    return {id:j.id, name:j.name, group:j.group, sales:s, direct:d, alloc:a, gross:s-d-a};
+    const s=sales[j.id]||0, d=direct[j.id]||0, a=allocated[j.id]||0, wj=wageByJob[j.id]||0;
+    return {id:j.id, name:j.name, group:j.group, sales:s, direct:d, alloc:a,
+            gross:s-d-a, wage:wj, net:s-d-a-wj};
   }).filter(r=>r.sales||r.direct||r.alloc);
 
   return {rows, income, cost, wage, common, allocated, allocatedSum, unallocated,
@@ -1905,35 +1917,43 @@ function renderReport(){
     + (Math.abs(c.unallocated) >= 1 ? `<br><span style="color:var(--orange)">※ 共通の経費 ${yen(c.unallocated)} は配分先の作業に売上がないため配分できていません（設定で配分先を確認してください）</span>`:'');
 
   const alloc=DB.settings.alloc;
-  document.getElementById('repAllocNote').textContent =
-    alloc==='sales' ? '共通の経費は「売上の比率」で自動的に分けています。'
+  document.getElementById('repAllocNote').innerHTML =
+    (alloc==='sales' ? '共通の経費は「売上の比率」で自動的に分けています。'
     : alloc==='manual' ? '共通の経費は「設定した比率」で分けています。'
-    : '共通の経費は作業に分けず、下の「共通」行にまとめています。';
+    : '共通の経費は作業に分けず、下の「共通」行にまとめています。')
+    + '<br><b>差引（粗利）</b>は工賃を引く前、<b>工賃後の損益</b>は利用者工賃も売上比で分けて引いた額です。'
+    + '「工賃後の損益」の合計が、この事業所の最終の収支になります。';
 
   // 作業別テーブル
-  let h=`<thead><tr><th>作業</th><th>売上</th><th>直接経費</th><th>共通経費按分</th><th>差引（粗利）</th><th>粗利率</th></tr></thead><tbody>`;
+  const nw = ' style="white-space:nowrap"';
+  let h=`<thead><tr><th${nw}>作業</th><th${nw}>売上</th><th${nw}>直接経費</th><th${nw}>共通経費按分</th>
+    <th${nw}>差引（粗利）</th><th${nw}>粗利率</th>
+    <th${nw}>− 利用者工賃</th><th${nw}>工賃後の損益</th></tr></thead><tbody>`;
   if(!c.jobRows.length){
-    h+=`<tr><td colspan="6" style="text-align:center;color:var(--sub);padding:24px">データがありません</td></tr>`;
+    h+=`<tr><td colspan="8" style="text-align:center;color:var(--sub);padding:24px">データがありません</td></tr>`;
   }
   c.jobRows.sort((a,b)=>b.sales-a.sales).forEach(r=>{
     const rate = r.sales? Math.round(r.gross/r.sales*100) : null;
-    h+=`<tr><td>${esc(r.name)}<span style="color:var(--sub);font-size:12px"> ${esc(r.group)}</span></td>
+    h+=`<tr><td style="white-space:nowrap">${esc(r.name)}<span style="color:var(--sub);font-size:12px"> ${esc(r.group)}</span></td>
       <td class="num">${num(r.sales)}</td>
       <td class="num">${r.direct?num(r.direct):'—'}</td>
       <td class="num">${r.alloc?num(r.alloc):'—'}</td>
       <td class="num ${r.gross<0?'minus':''}"><b>${num(r.gross)}</b></td>
-      <td class="num">${rate===null?'—':rate+'%'}</td></tr>`;
+      <td class="num">${rate===null?'—':rate+'%'}</td>
+      <td class="num minus">${r.wage?num(-r.wage):'—'}</td>
+      <td class="num ${r.net<0?'minus':''}"><b>${num(r.net)}</b></td></tr>`;
   });
   if(Math.abs(c.unallocated) >= 1){
-    h+=`<tr><td>共通（配分できなかった分）</td><td class="num">—</td><td class="num">${num(c.unallocated)}</td><td class="num">—</td><td class="num minus">${num(-c.unallocated)}</td><td class="num">—</td></tr>`;
+    h+=`<tr><td>共通（配分できなかった分）</td><td class="num">—</td><td class="num">${num(c.unallocated)}</td><td class="num">—</td><td class="num minus">${num(-c.unallocated)}</td><td class="num">—</td><td class="num">—</td><td class="num minus">${num(-c.unallocated)}</td></tr>`;
   }
   const ts=c.jobRows.reduce((s,r)=>s+r.sales,0);
   const td_=c.jobRows.reduce((s,r)=>s+r.direct,0)+c.unallocated;
   const ta=c.jobRows.reduce((s,r)=>s+r.alloc,0);
   const tg=ts-td_-ta;
-  h+=`<tr class="total"><td>作業 計</td><td class="num">${num(ts)}</td><td class="num">${num(td_)}</td><td class="num">${num(ta)}</td><td class="num ${tg<0?'minus':''}">${num(tg)}</td><td class="num">${ts?Math.round(tg/ts*100)+'%':'—'}</td></tr>`;
-  h+=`<tr class="total"><td>− 利用者工賃（全体）</td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num minus">${num(-c.wage)}</td><td class="num">—</td></tr>`;
-  h+=`<tr class="total"><td><b>最終の収支</b></td><td class="num">—</td><td class="num">—</td><td class="num">—</td><td class="num ${c.balance<0?'minus':''}"><b>${num(c.balance)}</b></td><td class="num">—</td></tr>`;
+  h+=`<tr class="total"><td style="white-space:nowrap">作業 計</td><td class="num">${num(ts)}</td><td class="num">${num(td_)}</td><td class="num">${num(ta)}</td>
+    <td class="num ${tg<0?'minus':''}">${num(tg)}</td><td class="num">${ts?Math.round(tg/ts*100)+'%':'—'}</td>
+    <td class="num minus">${num(-c.wage)}</td>
+    <td class="num ${c.balance<0?'minus':''}"><b>${num(c.balance)}</b></td></tr>`;
   document.getElementById('repJobTable').innerHTML = h+`</tbody>`;
 
   renderChart(fy);
