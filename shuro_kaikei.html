@@ -626,7 +626,10 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
     <div class="card">
       <h2>⚡ よく使う経費（業者）</h2>
-      <p class="hint">いつも買う業者を登録しておくと、経費の入力画面にボタンが出ます。押すだけで作業・費目・業者名が入り、金額を打つだけで保存できます。</p>
+      <p class="hint">いつも買う業者を登録しておくと、経費の入力画面にボタンが出ます。押すだけで作業・費目・業者名が入り、金額を打つだけで保存できます。<br>
+        <b>ここで決めた「共通のときの按分先」は、取り込み済みの明細にも効きます。</b>
+        摘要が業者名と一致する共通経費は、費目の設定より<b>この業者の設定が優先</b>されます。<br>
+        例：浦添冷凍（肉）は<b>弁当だけ</b>、なかや食材は<b>焼菓子だけ</b>——のように、同じ「食材費」でも業者ごとに分けられます。</p>
       <div class="tablewrap"><table id="setPresetTable"></table></div>
       <div class="row" style="margin-top:12px">
         <input type="text" id="newPresetName" placeholder="業者名（例：○○食品）" style="max-width:200px">
@@ -634,6 +637,11 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <select id="newPresetCost" style="max-width:160px"></select>
         <button class="btn" onclick="addPreset()">＋ 追加</button>
       </div>
+      <div class="row" style="margin-top:10px">
+        <button class="btn sub" onclick="addPresetsFromEntries()">🔍 明細の摘要から業者をまとめて登録</button>
+      </div>
+      <p class="hint">共通の経費として入っている明細の摘要を集めて、まだ登録していない業者を一覧にします。
+        登録したあと、業者ごとに<b>按分先</b>を決めてください。</p>
     </div>
 
     <div class="card">
@@ -1315,13 +1323,34 @@ function costTargets(costId){
  * その明細の共通費をどの作業に分けるか。
  * 明細に指定（業者ごとの按分先）があればそれを優先し、無ければ費目の設定に従う。
  */
-function entryTargets(e){
+function entryTargets(e){ return entryTargetInfo(e).targets; }
+
+/** 摘要から業者（よく使う経費）を探す。取り込んだ明細にも業者の設定を効かせるため。 */
+function presetForEntry(e){
+  const m = (e.m||'').trim();
+  if(!m || !DB.presets || !DB.presets.length) return null;
+  // 長い名前から順に見る（「(株)名城」と「名城」のような重なりに備える）
+  return DB.presets.filter(p=>p.name && p.name.trim())
+    .slice().sort((a,b)=>b.name.length-a.name.length)
+    .find(p=>m===p.name || m.indexOf(p.name)>=0) || null;
+}
+/**
+ * 按分先と、その根拠を返す。
+ * ①この明細の指定 → ②業者の設定（摘要で見つける） → ③費目の設定 の順。
+ */
+function entryTargetInfo(e){
   const all = DB.jobs.map(j=>j.id);
-  if(e.jt && e.jt.length){
-    const t = e.jt.filter(id=>all.includes(id));
-    if(t.length) return t.slice().sort();
+  const ok = t => { const v=(t||[]).filter(id=>all.includes(id)); return v.length?v.slice().sort():null; };
+  const own = ok(e.jt);
+  if(own) return {targets:own, src:'この明細の指定'};
+  const p = presetForEntry(e);
+  if(p){
+    const byJobs = ok(p.jobs);
+    if(byJobs) return {targets:byJobs, src:`業者「${p.name}」の設定`};
+    // 業者に作業そのものが決まっているなら、その作業だけの経費とみなす
+    if(p.j && p.j!==COMMON_JOB.id && all.includes(p.j)) return {targets:[p.j], src:`業者「${p.name}」の設定`};
   }
-  return costTargets(e.c).slice().sort();
+  return {targets: costTargets(e.c).slice().sort(), src:'費目の設定'};
 }
 /** 按分先の表示名（設定画面用） */
 function costTargetLabel(c){
@@ -2548,7 +2577,8 @@ function jobLedger(months, jobId){
         out.push({e, d:e.d, m:e.m||'', kind:'経費（この作業）', inAmt:0, direct:e.a, share:0, note:costName(e.c)});
       }else if(e.j===COMMON_JOB.id || !e.j){
         if(alloc==='none') return;
-        const t = entryTargets(e);
+        const info = entryTargetInfo(e);
+        const t = info.targets;
         if(!t.includes(jobId)) return;
         let base=0; t.forEach(id=> base += weight(id));
         if(base<=0) return;
@@ -2556,9 +2586,10 @@ function jobLedger(months, jobId){
         const w  = weight(jobId)/base;
         const share = e.a * pr * w;
         if(!share) return;
+        const only = t.length===1 ? '（この作業のみ）' : ` × 売上比 ${(w*100).toFixed(1)}%`;
         out.push({e, d:e.d, m:e.m||'', kind:'共通（按分）', inAmt:0, direct:0, share,
           note:`${costName(e.c)}｜全体 ${yen(e.a)}` + (pr<1 ? ` × 生産 ${(pr*100).toFixed(1)}%` : '')
-               + ` × 売上比 ${(w*100).toFixed(1)}%`});
+               + only + `　［${info.src}］`});
       }
     }
   });
@@ -3065,6 +3096,32 @@ function addPreset(){
   saveMaster(); renderAll(); toast('追加しました');
 }
 function updPreset(id,key,v){ const p=DB.presets.find(x=>x.id===id); if(p){ p[key]= key==='name' ? (v.trim()||p.name) : v; saveMaster(); renderAll(); } }
+
+/** 共通経費の明細の摘要を集めて、まだ登録していない業者をまとめて追加する */
+function addPresetsFromEntries(){
+  const seen = new Map();   // 摘要 → {件数, 合計, 費目}
+  DB.entries.forEach(e=>{
+    if(e.t!=='out') return;
+    if(e.j && e.j!==COMMON_JOB.id) return;      // 作業が決まっているものは対象外
+    if(e.tkc) return;                            // TKCから取り込んだ月次の集計は業者ではない
+    const m = (e.m||'').trim();
+    if(!m) return;
+    if(DB.presets.some(p=>p.name && (m===p.name || m.indexOf(p.name)>=0))) return;  // 登録済み
+    const v = seen.get(m) || {n:0, sum:0, c:e.c};
+    v.n++; v.sum += e.a; seen.set(m, v);
+  });
+  const list = [...seen.entries()].sort((a,b)=>b[1].sum-a[1].sum);
+  if(!list.length){ alert('新しく登録できる業者は見つかりませんでした。'); return; }
+  const lines = list.map(([m,v])=>`${m}（${v.n}件・${yen(v.sum)}）`);
+  if(!confirm(`次の${list.length}件を業者として登録します。\n\n${lines.join('\n')}\n\n`
+    + `登録したあと、業者ごとに「共通のときの按分先」を決めてください。\n`
+    + `いらないものは「削除」で消せます。\n\nよろしいですか？`)) return;
+  list.forEach(([m,v])=>{
+    DB.presets.push({id:genId(), name:m, j:COMMON_JOB.id, c:v.c || (DB.costs[0]||{}).id});
+  });
+  saveMaster(); renderAll();
+  toast(`${list.length}件の業者を登録しました`);
+}
 function delPreset(id){
   if(!confirm('この業者を消しますか？（登録済みの明細はそのまま残ります）')) return;
   DB.presets=DB.presets.filter(p=>p.id!==id); saveMaster(); renderAll();
