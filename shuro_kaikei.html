@@ -122,6 +122,11 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 .tile .g{display:block;font-size:11px;font-weight:400;opacity:.7;margin-top:2px}
 .tile.sel .g{opacity:.9}
 .dpBulkBar{padding:10px 0;margin-bottom:6px;border-bottom:1px solid var(--line)}
+/* 入力のしかたを選ぶタイル。説明を読ませたいので幅を広く、文字を左寄せに */
+.modetiles{grid-template-columns:repeat(auto-fit,minmax(280px,1fr))}
+.modetiles .tile{text-align:left;padding:16px 18px}
+.modetiles .tile b{font-size:17px}
+.modetiles .tile .g{font-size:12.5px;line-height:1.6;margin-top:6px;opacity:.75}
 .tile.addtile{border-style:dashed;color:var(--sub);background:#fafbfc}
 .tile.addtile:hover{border-color:var(--green);color:var(--green-d);background:var(--green-l)}
 
@@ -274,9 +279,18 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
   <!-- ============ 入力 ============ -->
   <section id="view-entry" class="view">
     <div class="card">
-      <div class="row" style="margin-bottom:4px">
-        <button class="btn sub" id="modeBtn-single" onclick="switchEntryMode('single')">1件ずつ入力</button>
-        <button class="btn sub" id="modeBtn-template" onclick="switchEntryMode('template')">いつもの入力（月まとめ）</button>
+      <h2>✍ どちらの入力にしますか？</h2>
+      <div class="tiles modetiles">
+        <button class="tile" id="modeBtn-single" onclick="switchEntryMode('single')">
+          <b>1件ずつ入力</b>
+          <span class="g">売上・経費・工賃を、そのつど1件ずつ登録します。<br>
+            日付や金額がバラバラなときはこちら。</span>
+        </button>
+        <button class="tile" id="modeBtn-template" onclick="switchEntryMode('template')">
+          <b>🔁 いつもの入力</b>
+          <span class="g">先月と同じ項目がずらっと並ぶので、<b>金額を入れるだけ</b>。<br>
+            毎月おなじみの支払いをまとめて片づけるときはこちら。</span>
+        </button>
       </div>
     </div>
 
@@ -1754,8 +1768,8 @@ function startQuick(t){ showTab('entry'); switchEntryMode('single'); setEType(t)
 function switchEntryMode(m){
   document.getElementById('entrySingle').style.display = m==='single'?'':'none';
   document.getElementById('entryTemplate').style.display = m==='template'?'':'none';
-  document.getElementById('modeBtn-single').style.background = m==='single'?'var(--green-l)':'';
-  document.getElementById('modeBtn-template').style.background = m==='template'?'var(--green-l)':'';
+  document.getElementById('modeBtn-single').classList.toggle('sel', m==='single');
+  document.getElementById('modeBtn-template').classList.toggle('sel', m==='template');
   if(m==='template') renderTemplateSelectors();
 }
 
@@ -4598,6 +4612,7 @@ async function installApp(){
 loadLocal();
 document.getElementById('eDate').value = todayISO();
 setEType('in');
+switchEntryMode('single');   // どちらが選ばれているか、はじめから分かるようにする
 renderAll();
 fixDepositYearTypo();
 initFirebase();
