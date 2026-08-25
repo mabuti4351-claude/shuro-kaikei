@@ -41,6 +41,8 @@ nav.tabs{display:flex;gap:6px;background:#fff;padding:8px 12px;border-bottom:2px
 nav.tabs button{flex:0 0 auto;background:#f0f2f5;border:2px solid transparent;border-radius:10px;
   padding:10px 18px;font-size:15px;font-weight:700;color:var(--sub);white-space:nowrap}
 nav.tabs button.active{background:var(--green-l);border-color:var(--green);color:var(--green-d)}
+/* 「入れる」「見る」「設定」のかたまりを、細い線で分ける */
+nav.tabs .tabsep{flex:0 0 auto;width:1px;background:var(--line);margin:4px 4px;align-self:stretch}
 /* タブの説明の吹き出し。タブ列は横スクロールするので、body直下に固定で出す */
 #tabTip{position:fixed;z-index:400;background:var(--ink);color:#fff;padding:9px 13px;border-radius:10px;
   font-size:13px;font-weight:600;line-height:1.5;max-width:min(92vw,380px);box-shadow:0 6px 20px rgba(0,0,0,.22);
@@ -217,17 +219,19 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
   <button data-tab="home" class="active" onclick="showTab('home')"
     data-tip="今月の売上・経費・利用者工賃をひと目で見る画面です。">🏠 ホーム</button>
   <button data-tab="entry" onclick="showTab('entry')"
-    data-tip="売上・経費・利用者工賃を1件ずつ登録します。よく使う業者はボタンで一発入力できます。">✍ 入力</button>
+    data-tip="売上・経費・利用者工賃を登録します。よく使う業者はボタンで一発入力できます。">✍ 入力</button>
+  <span class="tabsep"></span>
   <button data-tab="report" onclick="showTab('report')"
-    data-tip="作業ごとの売上と経費を、月別の表とグラフで見ます。共通の経費は按分して計算します。">📊 収支</button>
+    data-tip="事業所ぜんたいの収支と、作業ごとの粗利・工賃後の損益を一覧で見比べます。月ごとの推移グラフもここです。">💰 収支ぜんたい</button>
   <button data-tab="jobled" onclick="showTab('jobled')"
-    data-tip="作業ひとつを選び、その売上・経費・按分された共通経費を日付順に追います。計算の根拠も出ます。">📗 作業別</button>
+    data-tip="作業をひとつ選び、その売上・経費・按分された共通経費を日付順に追います。計算の根拠も各行に出ます。">🧩 作業ごと</button>
   <button data-tab="list" onclick="showTab('list')"
-    data-tip="入力したものを出納帳のかたちで一覧します。ここから直したり消したりできます。">📋 明細</button>
+    data-tip="入力したものを出納帳のかたちで、日付順にぜんぶ並べます。ここから直したり消したりできます。">📒 出納帳（明細）</button>
   <button data-tab="deposit" onclick="showTab('deposit')"
     data-tip="売上の入金予定を月ごとにまとめます。そのまま印刷できます。">🧾 入金票</button>
   <button data-tab="kessan" id="tabKessan" style="display:none" onclick="showTab('kessan')"
     data-tip="提出用の書類（表1・表4・別紙1）を作ります。棚卸や積立金もここで入れます。Excelで書き出せます。">📑 決算（基準版）</button>
+  <span class="tabsep"></span>
   <button data-tab="settings" onclick="showTab('settings')"
     data-tip="作業・費目・業者・按分のしかた、TKCのPDF取り込み、バックアップの設定をします。">⚙ 設定</button>
 </nav>
@@ -743,8 +747,8 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
     <div class="card">
       <h2>👷 利用者工賃の分け方</h2>
-      <p class="hint">工賃を<b>作業ごとの損益</b>に振り分けるときの決め方です。収支タブの「工賃後の損益」と、
-        作業別タブ・決算（表4）の作業別の列に効きます。<b>支払う工賃の総額は変わりません。</b><br>
+      <p class="hint">工賃を<b>作業ごとの損益</b>に振り分けるときの決め方です。「収支ぜんたい」の「工賃後の損益」と、
+        「作業ごと」・決算（表4）の作業別の列に効きます。<b>支払う工賃の総額は変わりません。</b><br>
         工賃は利用者の作業に対して支払うものなので、本来は<b>「利用者がどれだけその作業に関わったか」</b>で
         分けるのが実態に合います。時間を測るのが難しければ、下の目安から選んでください。</p>
       <div class="row">
@@ -3269,7 +3273,7 @@ function delCost(id){
   const used=DB.entries.filter(e=>e.c===id).length;
   if(used){
     if(confirm(`この費目は ${used} 件の明細で使われているので、先に明細を消す必要があります。\n\n`
-      +`「明細」タブでこの費目だけを絞り込んで表示します。\n各行の「直す」から1件ずつ消してください。\n\nそちらへ移動しますか？`)){
+      +`「出納帳（明細）」でこの費目だけを絞り込んで表示します。\n各行の「直す」から1件ずつ消してください。\n\nそちらへ移動しますか？`)){
       showTab('list');
       document.getElementById('lsFy').value=''; document.getElementById('lsMonth').value='';
       document.getElementById('lsJob').value=''; document.getElementById('lsType').value='';
@@ -3778,7 +3782,7 @@ async function applyExcelImport(mode){
 
   _pendingImport = null;
   renderAll();
-  alert(`✅ 取り込みが完了しました。\n\n明細：${DB.entries.length}件\n売上：${yen(DB.entries.filter(e=>e.t==='in').reduce((s,e)=>s+e.a,0))}\n\n「収支」タブで確認できます。`);
+  alert(`✅ 取り込みが完了しました。\n\n明細：${DB.entries.length}件\n売上：${yen(DB.entries.filter(e=>e.t==='in').reduce((s,e)=>s+e.a,0))}\n\n「収支ぜんたい」で確認できます。`);
 }
 
 /** 試験運用中の一時的な機能：この事業所の明細をすべて消す（作業・費目の設定は残す） */
