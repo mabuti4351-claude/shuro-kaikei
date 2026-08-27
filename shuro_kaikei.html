@@ -633,6 +633,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <button data-sg="master" onclick="showSetGroup('master')">🧩 作業・費目・業者</button>
       <button data-sg="alloc"  onclick="showSetGroup('alloc')">⚖ 按分のしかた</button>
       <button data-sg="data"   onclick="showSetGroup('data')">📥 取り込み・保存</button>
+      <button data-sg="trash"  onclick="showSetGroup('trash')" id="trashNavBtn">🗑 ゴミ箱</button>
     </div>
 
     <div class="setgrp" data-sg="basic">
@@ -846,6 +847,19 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         もとに戻せないので、先に「💾 バックアップを保存」しておいてください。</p>
     </div>
     </div><!-- /data -->
+
+    <div class="setgrp" data-sg="trash">
+      <div class="card">
+        <h2>🗑 ゴミ箱</h2>
+        <p class="hint">設定から消した<b>科目・費目・作業・業者</b>がここに入ります。
+          パソコンのゴミ箱と同じで、<b>「戻す」を押せばいつでも元に戻せます</b>。<br>
+          ※ 取り込んだ<b>明細（金額のデータ）は消えていません</b>。ここに入るのは設定の項目だけです。</p>
+        <div class="tablewrap"><table id="trashTable"></table></div>
+        <div class="row" style="margin-top:12px">
+          <button class="btn sub" id="trashEmptyBtn" onclick="emptyTrash()">ゴミ箱を空にする</button>
+        </div>
+      </div>
+    </div><!-- /trash -->
   </section>
 </main>
 
@@ -3237,6 +3251,8 @@ function renderSettings(){
   onAllocChange(true);
   renderWageAlloc();
 
+  renderTrash();
+
   // どのグループを開いているか（前に開いていたものを覚えておく）
   if(!document.querySelector('#view-settings .setgrp.active')){
     let g = 'basic';
@@ -3257,8 +3273,11 @@ function toggleJob(id,v){ const j=jobById(id); if(j){ j.active=v; saveMaster(); 
 function delJob(id){
   const used=DB.entries.filter(e=>e.j===id).length;
   if(used){ alert(`この作業は明細で ${used} 件使われているので消せません。「使う」のチェックを外すとボタンから隠せます。`); return; }
-  if(!confirm('この作業を消しますか？')) return;
-  DB.jobs=DB.jobs.filter(j=>j.id!==id); saveMaster(); renderAll();
+  const j=DB.jobs.find(x=>x.id===id); if(!j) return;
+  if(!confirm(`作業「${j.name}」を消しますか？\n\n消したものは「🗑 ゴミ箱」に入るので、いつでも戻せます。`)) return;
+  trashPush('job', j, j.name);
+  DB.jobs=DB.jobs.filter(x=>x.id!==id); saveMaster(); renderAll();
+  toast('ゴミ箱に入れました');
 }
 function addJob(){
   const n=document.getElementById('newJobName').value.trim();
@@ -3294,9 +3313,11 @@ function delCost(id){
       + `このままだと次にPDFを読み込んだときにまた作られます。\n`
       + `いらなければ、そちらも「－ 取り込まない」にしてください。`
     : '';
-  if(!confirm(`費目「${cost.name}」を消しますか？${note}`)) return;
+  if(!confirm(`費目「${cost.name}」を消しますか？${note}\n\n消したものは「🗑 ゴミ箱」に入るので、いつでも戻せます。`)) return;
+  trashPush('cost', cost, cost.name);
   DB.costs = DB.costs.filter(c=>c.id!==id);
   saveMaster(); renderAll();
+  toast('ゴミ箱に入れました');
 }
 function addCost(){
   const n=document.getElementById('newCostName').value.trim();
@@ -3397,6 +3418,88 @@ function jumpToTkc(){
     if(el) el.scrollIntoView({behavior:'smooth', block:'start'});
   }, 60);
 }
+/* ============ ゴミ箱 ============ */
+/* 設定から消した項目をここに退避しておき、あとから戻せるようにする。
+   明細（金額のデータ）はここには入らない。 */
+const TRASH_MAX = 50;
+const TRASH_KIND = {tkc:'TKCの科目', cost:'費目', job:'作業', preset:'業者'};
+
+function trash(){ if(!Array.isArray(DB.settings.trash)) DB.settings.trash=[]; return DB.settings.trash; }
+function trashPush(kind, obj, label){
+  const t = trash();
+  t.unshift({id:genId(), kind, at:todayISO(), label, data:JSON.parse(JSON.stringify(obj))});
+  if(t.length > TRASH_MAX) t.length = TRASH_MAX;
+}
+/** ゴミ箱から元に戻す */
+function trashRestore(id){
+  const t = trash();
+  const i = t.findIndex(x=>x.id===id);
+  if(i<0) return;
+  const it = t[i], d = it.data;
+  if(it.kind==='tkc'){
+    if(tkcAccounts().some(x=>x.code===d.code)){ alert(`科目「${d.code}」はすでに一覧にあります。`); return; }
+    tkcAccounts().push(d);
+    DB.settings.tkcAccounts.sort((a,b)=>String(a.code).localeCompare(String(b.code)));
+  }else if(it.kind==='cost'){
+    if(DB.costs.some(x=>x.id===d.id || x.name===d.name)){ alert(`費目「${d.name}」はすでにあります。`); return; }
+    DB.costs.push(d);
+  }else if(it.kind==='job'){
+    if(DB.jobs.some(x=>x.id===d.id || x.name===d.name)){ alert(`作業「${d.name}」はすでにあります。`); return; }
+    DB.jobs.push(d);
+  }else if(it.kind==='preset'){
+    if(DB.presets.some(x=>x.id===d.id)){ alert(`業者「${d.name}」はすでにあります。`); return; }
+    DB.presets.push(d);
+  }
+  t.splice(i,1);
+  saveMaster(); renderAll();
+  toast(`「${it.label}」を戻しました`);
+}
+/** ゴミ箱から完全に消す */
+function trashDrop(id){
+  const t = trash();
+  const it = t.find(x=>x.id===id); if(!it) return;
+  if(!confirm(`「${it.label}」をゴミ箱から完全に消します。\nこれは元に戻せません。よろしいですか？`)) return;
+  DB.settings.trash = t.filter(x=>x.id!==id);
+  saveMaster(); renderAll();
+}
+function emptyTrash(){
+  const t = trash();
+  if(!t.length){ toast('ゴミ箱は空です'); return; }
+  if(!confirm(`ゴミ箱の ${t.length}件 を完全に消します。\nこれは元に戻せません。よろしいですか？`)) return;
+  DB.settings.trash = [];
+  saveMaster(); renderAll();
+  toast('ゴミ箱を空にしました');
+}
+function renderTrash(){
+  const el = document.getElementById('trashTable');
+  if(!el) return;
+  const t = trash();
+  // ゴミ箱に何か入っていることが、開かなくても分かるようにする
+  const nav = document.getElementById('trashNavBtn');
+  if(nav) nav.textContent = t.length ? `🗑 ゴミ箱 (${t.length})` : '🗑 ゴミ箱';
+  const empty = document.getElementById('trashEmptyBtn');
+  if(empty) empty.style.display = t.length ? '' : 'none';
+
+  if(!t.length){
+    el.innerHTML = `<tbody><tr><td style="text-align:center;color:var(--sub);padding:24px">
+      ゴミ箱は空です。</td></tr></tbody>`;
+    return;
+  }
+  let h = `<thead><tr><th style="text-align:left">種類</th><th style="text-align:left">名前</th>
+    <th>消した日</th><th class="noprint">操作</th></tr></thead><tbody>`;
+  t.forEach(x=>{
+    h += `<tr>
+      <td style="text-align:left;white-space:nowrap">${esc(TRASH_KIND[x.kind]||x.kind)}</td>
+      <td style="text-align:left">${esc(x.label)}</td>
+      <td style="white-space:nowrap;color:var(--sub);font-size:12px">${esc(x.at)}</td>
+      <td class="noprint" style="white-space:nowrap">
+        <button class="btn" style="padding:5px 14px;font-size:13px" onclick="trashRestore('${x.id}')">↩ 戻す</button>
+        <button class="btn sub" style="padding:5px 10px;font-size:12px" onclick="trashDrop('${x.id}')">完全に消す</button>
+      </td></tr>`;
+  });
+  el.innerHTML = h + `</tbody>`;
+}
+
 /** 設定画面のグループを切り替える */
 function showSetGroup(name){
   DB.settings.setGroup = name;
@@ -3447,8 +3550,12 @@ function addPresetsFromEntries(){
   toast(`${list.length}件の業者を登録しました`);
 }
 function delPreset(id){
-  if(!confirm('この業者を消しますか？（登録済みの明細はそのまま残ります）')) return;
-  DB.presets=DB.presets.filter(p=>p.id!==id); saveMaster(); renderAll();
+  const p=DB.presets.find(x=>x.id===id); if(!p) return;
+  if(!confirm(`業者「${p.name}」を消しますか？（登録済みの明細はそのまま残ります）\n\n`
+    +`消したものは「🗑 ゴミ箱」に入るので、いつでも戻せます。`)) return;
+  trashPush('preset', p, p.name);
+  DB.presets=DB.presets.filter(x=>x.id!==id); saveMaster(); renderAll();
+  toast('ゴミ箱に入れました');
 }
 
 function onAllocChange(silent){
@@ -4429,12 +4536,12 @@ function delTkcAccount(i){
   const msg = `科目「${a.code} ${a.name}」を一覧から消しますか？\n\n`
     + (n ? `※ 取り込み済みの明細 ${n}件 は残ります（消えません）。\n`
          + `　 明細も消したいときは、削除ではなく「－ 取り込まない」を選んでください。\n\n` : '')
-    + `一覧に残しておきたいだけなら「－ 取り込まない」で十分です。\n`
-    + `消しても「↩ 元に戻す」や「PDFから科目の一覧を作る」で戻せます。`;
+    + `消したものは「🗑 ゴミ箱」に入るので、いつでも戻せます。`;
   if(!confirm(msg)) return;
+  trashPush('tkc', a, `${a.code} ${a.name}`);
   tkcAccounts().splice(i,1);
-  saveMaster(); renderTkcTable();
-  toast('科目を一覧から消しました（元に戻せます）');
+  saveMaster(); renderAll();
+  toast('ゴミ箱に入れました');
 }
 function addTkcAccount(){
   const code = document.getElementById('newTkcCode').value.trim();
