@@ -4423,7 +4423,19 @@ function addSuggestedTkc(){
   saveMaster(); renderAll();
   toast(`${TKC_SUGGESTED.length}件の扱いを設定しました`);
 }
-function delTkcAccount(i){ tkcAccounts().splice(i,1); saveMaster(); renderTkcTable(); }
+function delTkcAccount(i){
+  const a = tkcAccounts()[i]; if(!a) return;
+  const n = tkcEntriesOf(a.code).length;
+  const msg = `科目「${a.code} ${a.name}」を一覧から消しますか？\n\n`
+    + (n ? `※ 取り込み済みの明細 ${n}件 は残ります（消えません）。\n`
+         + `　 明細も消したいときは、削除ではなく「－ 取り込まない」を選んでください。\n\n` : '')
+    + `一覧に残しておきたいだけなら「－ 取り込まない」で十分です。\n`
+    + `消しても「↩ 元に戻す」や「PDFから科目の一覧を作る」で戻せます。`;
+  if(!confirm(msg)) return;
+  tkcAccounts().splice(i,1);
+  saveMaster(); renderTkcTable();
+  toast('科目を一覧から消しました（元に戻せます）');
+}
 function addTkcAccount(){
   const code = document.getElementById('newTkcCode').value.trim();
   const name = document.getElementById('newTkcName').value.trim();
