@@ -585,10 +585,20 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       </div>
       <h3>積立金（工賃変動積立金）</h3>
       <p class="hint">前期繰越額を入れると、別紙3・別紙4の当期末残高まで自動で計算します。</p>
-      <div class="row" style="margin-bottom:10px">
-        <div class="grow" style="max-width:260px"><label class="lbl">過去3年間の平均賃金・工賃（自分で入力）</label><input type="number" id="ksKoichinAvg3y" onchange="saveFyData()" placeholder="例) 1200000"></div>
-      </div>
-      <div id="ksKoichinLimit" class="banner info" style="margin-bottom:10px"></div>
+      <p class="hint"><b>過去3年の賃金・工賃</b>から上限を計算します。アプリに明細がある年度は<b>自動で入ります</b>。
+        明細が無い年度だけ、実績を入れてください。<b>一度入れれば翌年からは入力不要</b>です。</p>
+      <div class="tablewrap" style="max-width:560px"><table id="ksPastWageTable"></table></div>
+      <div id="ksKoichinLimit" class="banner info" style="margin:10px 0"></div>
+      <details style="margin-bottom:10px">
+        <summary style="cursor:pointer;font-size:13px;color:var(--sub)">3年平均を自分で決めたいとき</summary>
+        <div class="row" style="margin-top:8px">
+          <div class="grow" style="max-width:260px">
+            <label class="lbl">過去3年間の平均賃金・工賃（直接入力）</label>
+            <input type="number" id="ksKoichinAvg3y" onchange="saveFyData()" placeholder="空欄なら上の表から計算">
+          </div>
+        </div>
+        <p class="hint">ここに入れると、上の表より<b>こちらが優先</b>されます。0か空欄にすると表からの計算に戻ります。</p>
+      </details>
       <div class="row">
         <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 前期繰越</label><input type="number" id="ksKoichinOpen" onchange="saveFyData()"></div>
         <div class="grow" style="max-width:210px"><label class="lbl">工賃変動積立金 繰入</label><input type="number" id="ksKoichinIn" onchange="saveFyData()"></div>
@@ -2405,9 +2415,37 @@ function calcStd(fy){
  * 平均額はこのアプリでは自動計算せず、自分で入力してもらう
  * （このアプリに無い年度の過去実績を反映できるようにするため）。
  */
+/* 過去の年度ごとの支払工賃。
+   アプリに明細がある年度はその合計を使い、無い年度だけ手で入れてもらう。
+   一度入れておけば、翌年からは年度がずれても自動で3年平均を出せる。 */
+function wagePaidOf(fy){
+  const set = new Set(fyMonths(fy));
+  return DB.entries.filter(e=>e.t==='wage' && set.has(e.d.slice(0,7)))
+                   .reduce((s,e)=>s+e.a, 0);
+}
+function pastWages(){ if(!DB.settings.pastWages) DB.settings.pastWages={}; return DB.settings.pastWages; }
+/** その年度の工賃実績。アプリの明細を優先し、無ければ手入力値 */
+function wageOfYear(fy){
+  const fromApp = wagePaidOf(fy);
+  if(fromApp) return {amount:fromApp, src:'app'};
+  const v = +pastWages()[fy] || 0;
+  return {amount:v, src: v?'manual':'none'};
+}
+/**
+ * 工賃変動積立金の上限（ガイドラインp31）。
+ *   年間の繰入 … 過去3年間の平均賃金・工賃の10%以内
+ *   残高       … 同じく50%以内
+ * 3年平均は「その年度の前3年度」の平均。
+ */
 function koichinLimit(fy){
-  const avg = fyData(fy).koichinAvg3y || 0;
-  return { avg, yearLimit: avg*0.10, totalLimit: avg*0.50 };
+  const years = [fy-1, fy-2, fy-3];
+  const rows = years.map(y=>Object.assign({fy:y}, wageOfYear(y)));
+  const known = rows.filter(r=>r.amount>0);
+  // 手入力の平均額が入っていればそれを優先（過去のやり方を残しておく）
+  const manualAvg = +fyData(fy).koichinAvg3y || 0;
+  const avg = manualAvg || (known.length ? known.reduce((s,r)=>s+r.amount,0)/known.length : 0);
+  return { avg, rows, known:known.length, manualAvg,
+           yearLimit: avg*0.10, totalLimit: avg*0.50 };
 }
 
 function renderKessanSelectors(){
@@ -2425,7 +2463,13 @@ function saveFyData(){
   d.openProd=g('ksOpenProd'); d.closeProd=g('ksCloseProd');
   d.koichinIn=g('ksKoichinIn'); d.koichinOut=g('ksKoichinOut'); d.koichinOpen=g('ksKoichinOpen');
   d.setsubiIn=g('ksSetsubiIn'); d.setsubiOut=g('ksSetsubiOut'); d.setsubiOpen=g('ksSetsubiOpen');
-  d.koichinAvg3y=g('ksKoichinAvg3y');
+  const avgEl = document.getElementById('ksKoichinAvg3y');
+  if(avgEl) d.koichinAvg3y = Math.round(+avgEl.value)||0;
+  saveMaster(); renderKessan();
+}
+/** 過去の年度ごとの賃金・工賃を覚えておく（年度をまたいで使う） */
+function setPastWage(fy, v){
+  pastWages()[fy] = Math.round(+v)||0;
   saveMaster(); renderKessan();
 }
 
@@ -2452,27 +2496,59 @@ function renderKessan(){
   st('ksKoichinEnd', (d.koichinOpen||0)+(d.koichinIn||0)-(d.koichinOut||0));
   st('ksSetsubiEnd', (d.setsubiOpen||0)+(d.setsubiIn||0)-(d.setsubiOut||0));
 
-  // ---- 工賃変動積立金の上限案内（表示のみ。自分で入力した平均額から計算） ----
+  // ---- 工賃変動積立金：過去3年の実績と上限 ----
+  const lim = koichinLimit(fy);
+  const pastTbl = document.getElementById('ksPastWageTable');
+  if(pastTbl){
+    let h = `<thead><tr><th style="text-align:left">年度</th><th>賃金・工賃の実績</th><th style="text-align:left">出どころ</th></tr></thead><tbody>`;
+    lim.rows.forEach(r=>{
+      const auto = r.src==='app';
+      h += `<tr>
+        <td style="text-align:left;white-space:nowrap">${r.fy}年度</td>
+        <td class="num">${auto
+          ? `<b>${num(r.amount)}</b>`
+          : `<input type="number" value="${r.amount||''}" onchange="setPastWage(${r.fy},this.value)"
+               style="width:150px;text-align:right;padding:6px" placeholder="0">`}</td>
+        <td style="text-align:left;font-size:12px;color:var(--sub)">${auto?'アプリの明細から自動':'手入力'}</td>
+      </tr>`;
+    });
+    h += `<tr class="total"><td style="text-align:left">3年平均</td>
+      <td class="num"><b>${lim.avg?num(lim.avg):'—'}</b></td>
+      <td style="text-align:left;font-size:12px;color:var(--sub)">${
+        lim.manualAvg ? '※ 下の「平均額を直接入れる」が優先されています'
+        : lim.known ? `${lim.known}年分の平均` : '入力待ち'}</td></tr>`;
+    pastTbl.innerHTML = h + `</tbody>`;
+  }
   const koichinLimEl = document.getElementById('ksKoichinLimit');
   if(koichinLimEl){
-    const lim = koichinLimit(fy);
     if(!lim.avg){
       koichinLimEl.className = 'banner info';
-      koichinLimEl.innerHTML = 'ℹ 上に「過去3年間の平均賃金・工賃」を入れると、年間・残高の上限をここに表示します。';
+      koichinLimEl.innerHTML = 'ℹ 上の表に過去の実績を入れると、年間・残高の上限をここに表示します。';
     }else{
-      koichinLimEl.className = 'banner info';
-      koichinLimEl.innerHTML = `ℹ 入力した平均額（${yen(lim.avg)}）から算出した上限：
-        <b>年間の積立は${yen(lim.yearLimit)}まで</b>／<b>残高は${yen(lim.totalLimit)}まで</b>`;
+      const over = (d.koichinIn||0) - lim.yearLimit;
+      const overEnd = ((d.koichinOpen||0)+(d.koichinIn||0)-(d.koichinOut||0)) - lim.totalLimit;
+      koichinLimEl.className = (over>0 || overEnd>0) ? 'banner warn' : 'banner info';
+      koichinLimEl.innerHTML =
+        `${(over>0||overEnd>0)?'⚠':'ℹ'} 3年平均 <b>${num(lim.avg)}</b> から算出した上限です。<br>`
+        + `・年間の繰入 … 3年平均の<b>10%以内</b> ＝ <b>${yen(lim.yearLimit)}まで</b>`
+        + (over>0 ? `　<span style="color:#c62828">いまの繰入 ${yen(d.koichinIn||0)} は ${yen(over)} 超えています</span>` : '')
+        + `<br>・残高 … 3年平均の<b>50%以内</b> ＝ <b>${yen(lim.totalLimit)}まで</b>`
+        + (overEnd>0 ? `　<span style="color:#c62828">いまの残高は ${yen(overEnd)} 超えています</span>` : '')
+        + `<br><span style="font-size:12px">根拠：就労支援事業会計の運用ガイドライン p31</span>`;
     }
   }
 
-  // ---- 設備等整備積立金の上限案内（表示のみ。当期収入から自動計算できる分だけ） ----
+  // ---- 設備等整備積立金の上限案内（当期収入から自動計算できる分だけ） ----
   const setsubiLimEl = document.getElementById('ksSetsubiLimit');
   if(setsubiLimEl){
     const setsubiYearLimit = c.income * 0.10;
-    setsubiLimEl.innerHTML = `ℹ 当期の就労支援事業収入（${yen(c.income)}）から算出した上限：
-      <b>年間の積立は${yen(setsubiYearLimit)}まで</b>
-      <br><span style="font-size:12px">※ 残高の上限（資産取得価額の75%以内）は、資産の取得価額を把握していないため計算できません。ご自身で確認してください。</span>`;
+    const sOver = (d.setsubiIn||0) - setsubiYearLimit;
+    setsubiLimEl.className = sOver>0 ? 'banner warn' : 'banner info';
+    setsubiLimEl.innerHTML = `${sOver>0?'⚠':'ℹ'} 当期の就労支援事業収入 <b>${num(c.income)}</b> から算出した上限です。<br>`
+      + `・年間の繰入 … 当期収入の<b>10%以内</b> ＝ <b>${yen(setsubiYearLimit)}まで</b>`
+      + (sOver>0 ? `　<span style="color:#c62828">いまの繰入 ${yen(d.setsubiIn||0)} は ${yen(sOver)} 超えています</span>` : '')
+      + `<br>・残高 … <b>資産の取得価額の75%以内</b>（取得価額を持っていないため計算できません。ご自身で確認してください）`
+      + `<br><span style="font-size:12px">根拠：就労支援事業会計の運用ガイドライン p31</span>`;
   }
 
   const officeLine = (DB.settings.officeName||'').trim() ? DB.settings.officeName.trim()+'　' : '';
