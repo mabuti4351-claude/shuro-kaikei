@@ -3073,16 +3073,25 @@ function exportJobLedgerCsv(){
 }
 
 /** 通常の出納帳形式（日付の古い順・収入と支出を分け、残高を積み上げる） */
-/** 月ごとの「生産活動収入」と「福祉事業収入」。按分の割合を月単位で出すために使う */
-function monthIncomeMap(){
-  const m = {};
-  DB.entries.forEach(e=>{
-    const ym = e.d.slice(0,7);
-    if(!m[ym]) m[ym] = {income:0, welfare:0};
-    if(e.t==='in') m[ym].income += e.a;
-  });
-  Object.keys(m).forEach(ym=>{ m[ym].welfare = welfareIncome([ym]); });
-  return m;
+/**
+ * 按分の割合を出すための期間。
+ * 「年度」「月」の絞り込みだけを見る（費目や作業で絞っても割合は変えない）。
+ * 収支タブと同じ期間・同じ割合にするため、ここを合わせるのが肝心。
+ */
+function lsRatioMonths(){
+  const m = document.getElementById('lsMonth').value;
+  if(m) return [m];
+  const fy = document.getElementById('lsFy').value;
+  if(fy) return fyMonths(+fy);
+  return [...new Set(DB.entries.map(e=>e.d.slice(0,7)))].sort();
+}
+/** その期間の生産活動収入と福祉事業収入（按分の分母） */
+function lsIncomeBase(){
+  const months = lsRatioMonths();
+  const set = new Set(months);
+  const income = DB.entries.filter(e=>e.t==='in' && set.has(e.d.slice(0,7)))
+                           .reduce((s,e)=>s+e.a, 0);
+  return { income, welfare: welfareIncome(months) };
 }
 function onLsViewChange(){
   DB.settings.lsView = document.getElementById('lsView').value;
@@ -3094,20 +3103,22 @@ function renderList(){
   const list=filteredEntries();
   const view = DB.settings.lsView || 'prod';
   document.getElementById('lsView').value = view;
+  const vFy = document.getElementById('lsFy').value;
+  const vM  = document.getElementById('lsMonth').value;
+  const per = vM ? monthLabelFull(vM) : vFy ? fyLabel(+vFy) : 'すべての期間';
   document.getElementById('lsViewNote').innerHTML = view==='prod'
     ? '共通の経費は<b>生産活動が負担する分だけ</b>を出しています（残りは福祉事業の負担）。'
-      + 'そのため<b>残高が、そのまま生産活動の収支</b>になります。元の金額は各行に小さく添えています。'
+      + `そのため<b>いちばん下の残高が、そのまま生産活動の収支</b>になります。元の金額は各行に小さく添えています。<br>`
+      + `<b>${esc(per)}</b>の収入で割合を出しています。年度や月で絞り込むと、その期間の割合になります。`
     : 'TKCから取り込んだ<b>全額</b>（福祉事業の分も込み）を出しています。<b>会計ソフトと突き合わせる</b>ときはこちらです。'
       + '共通の経費がそのまま引かれるので、残高は生産活動の収支とは一致しません。';
 
-  const mi = monthIncomeMap();
+  const base = lsIncomeBase();   // 収支タブと同じ期間・同じ割合にする
   let inS=0,outS=0,wS=0,bal=0;
   const rows = list.map(e=>{
-    const ym = e.d.slice(0,7);
-    const r = mi[ym] || {income:0, welfare:0};
     // 共通の経費だけ、生産活動が負担する割合をかける
     const isCommon = e.t==='out' && (!e.j || e.j===COMMON_JOB.id);
-    const ratio = (view==='prod' && isCommon) ? prodRatioOf(e, r.income, r.welfare) : 1;
+    const ratio = (view==='prod' && isCommon) ? prodRatioOf(e, base.income, base.welfare) : 1;
     const amt = e.a * ratio;
     const inAmt = e.t==='in' ? amt : 0;
     const outAmt = (e.t==='out'||e.t==='wage') ? amt : 0;
