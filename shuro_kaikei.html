@@ -4479,7 +4479,22 @@ function setTkcMode(i, mode){
   }
   else { a.kind='cost'; a.prod = mode; }   // 'all' か 'auto'
   syncCostProd(a);
+  applyTkcProdToEntries(a);
   saveMaster(); renderAll();
+}
+/**
+ * 科目の扱いを変えたら、取り込み済みの明細にも反映する。
+ * 明細は取り込んだ時点の割合(e.pr)を持っているので、ここで塗り替えないと
+ * 設定を変えても表示が変わらない。取り込み直しは不要にする。
+ */
+async function applyTkcProdToEntries(a){
+  if(a.kind!=='cost') return;
+  const pr = (a.prod==null) ? 'all' : a.prod;
+  const changed = tkcEntriesOf(a.code).filter(e=>e.pr!==pr);
+  if(!changed.length) return;
+  changed.forEach(e=>{ e.pr = pr; });
+  await putEntries(changed);
+  renderAll();
 }
 /** その費目に、帳簿（出納帳）へ手で入れた明細があるか */
 function hasBooked(name){
@@ -4498,6 +4513,7 @@ function setTkcPct(i, v){
   const a = tkcAccounts()[i]; if(!a) return;
   a.kind='cost'; a.prod = Math.max(0, Math.min(100, +v||0));
   syncCostProd(a);
+  applyTkcProdToEntries(a);
   saveMaster(); renderAll();
 }
 /** 一覧で決めた按分を、対応する費目にも反映する（費目側の設定と食い違わないように） */
