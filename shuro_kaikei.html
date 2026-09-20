@@ -4359,7 +4359,7 @@ function showTkcPreview(){
       <td style="text-align:right">${yen(r.amount)}</td></tr>`;
   });
   document.getElementById('tkcPreview').innerHTML = h + `</tbody>`;
-  const dup = p.list.filter(r=>DB.entries.some(e=>e.tkc===tkcKey(p.dept,r))).length;
+  const dup = p.list.filter(r=>findTkcEntry(p.dept, r.code, tkcYm(r))).length;
   // 帳簿に同じ費目が入っているのに差し引いていない科目 ＝ 二重計上のおそれ
   const risky = [...new Set(p.list.filter(r=>r.booked && r.gross==null).map(r=>`${r.code} ${r.name}`))];
   const warn = risky.length
@@ -4373,7 +4373,8 @@ function showTkcPreview(){
   document.getElementById('tkcModal').classList.add('open');
 }
 /** 同じ部門・科目・月なら同じ鍵。入れ直したとき二重にしないために使う */
-function tkcKey(dept, r){ return `${dept}|${r.code}|${r.year}-${String(r.month).padStart(2,'0')}`; }
+function tkcYm(r){ return `${r.year}-${String(r.month).padStart(2,'0')}`; }
+function tkcKey(dept, r){ return `${String(dept).padStart(3,'0')}|${r.code}|${tkcYm(r)}`; }
 /**
  * その費目で、その月に「帳簿（出納帳）に手で入っている」金額の合計。
  * TKCから取り込んだ分（e.tkc）は数えない。
@@ -4404,7 +4405,8 @@ async function commitTkcImport(){
   });
   p.list.forEach(r=>{
     const key = tkcKey(p.dept, r);
-    const old = DB.entries.find(e=>e.tkc===key);
+    // 部門コードの表記が前と違っていても、同じ明細を見つけて上書きする（二重登録の防止）
+    const old = findTkcEntry(p.dept, r.code, tkcYm(r));
     const cid = resolveCostId(r.name, '', created);
     // 新しく作った費目には、科目の設定にある「生産活動が負担する割合」を入れておく
     const acct = tkcAccounts().find(a=>a.code===r.code);
@@ -4528,8 +4530,25 @@ function syncCostProd(a){
 /** その科目コードで取り込んだ明細 */
 function tkcEntriesOf(code){
   const dept = (DB.settings.tkcDept||'').trim();
-  const pre = `${dept}|${code}|`;
-  return DB.entries.filter(e=>e.tkc && e.tkc.indexOf(pre)===0);
+  return DB.entries.filter(e=>{
+    const p = tkcKeyParts(e); if(!p) return false;
+    if(p.code !== code) return false;
+    // 部門は「30」と「030」を同じものとして扱う（取り込んだ時と表記が違っても拾えるように）
+    return !dept || sameDeptCode(p.dept, dept);
+  });
+}
+/** 明細が持つ鍵（部門|科目|年月）をばらす */
+function tkcKeyParts(e){
+  if(!e || !e.tkc) return null;
+  const p = String(e.tkc).split('|');
+  return p.length>=3 ? {dept:p[0], code:p[1], ym:p[2]} : null;
+}
+/** 同じ部門・科目・年月の明細を探す。部門コードの表記ゆれは無視する */
+function findTkcEntry(dept, code, ym){
+  return DB.entries.find(e=>{
+    const p = tkcKeyParts(e); if(!p) return false;
+    return p.code===code && p.ym===ym && sameDeptCode(p.dept, dept);
+  }) || null;
 }
 
 function renderTkcTable(){
