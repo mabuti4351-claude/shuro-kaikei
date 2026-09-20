@@ -492,7 +492,15 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
           <label class="lbl">メモで探す</label>
           <input type="text" id="lsQ" oninput="renderList()" placeholder="例) 弁当">
         </div>
+        <div class="grow" style="max-width:250px">
+          <label class="lbl">金額の見方</label>
+          <select id="lsView" onchange="onLsViewChange()">
+            <option value="prod">生産活動の負担分（按分後）</option>
+            <option value="raw">取り込んだ全額（TKCのまま）</option>
+          </select>
+        </div>
       </div>
+      <p class="hint noprint" id="lsViewNote" style="margin-top:8px"></p>
       <div class="row noprint" style="margin-top:12px">
         <button class="btn sub" onclick="exportLedgerCsv()">📤 出納帳のかたちでCSV書き出し</button>
         <span class="hint" id="lsCount" style="margin:0"></span>
@@ -3065,33 +3073,65 @@ function exportJobLedgerCsv(){
 }
 
 /** 通常の出納帳形式（日付の古い順・収入と支出を分け、残高を積み上げる） */
+/** 月ごとの「生産活動収入」と「福祉事業収入」。按分の割合を月単位で出すために使う */
+function monthIncomeMap(){
+  const m = {};
+  DB.entries.forEach(e=>{
+    const ym = e.d.slice(0,7);
+    if(!m[ym]) m[ym] = {income:0, welfare:0};
+    if(e.t==='in') m[ym].income += e.a;
+  });
+  Object.keys(m).forEach(ym=>{ m[ym].welfare = welfareIncome([ym]); });
+  return m;
+}
+function onLsViewChange(){
+  DB.settings.lsView = document.getElementById('lsView').value;
+  saveMaster(); renderList();
+}
+
 function renderList(){
   renderListSelectors();
   const list=filteredEntries();
+  const view = DB.settings.lsView || 'prod';
+  document.getElementById('lsView').value = view;
+  document.getElementById('lsViewNote').innerHTML = view==='prod'
+    ? '共通の経費は<b>生産活動が負担する分だけ</b>を出しています（残りは福祉事業の負担）。'
+      + 'そのため<b>残高が、そのまま生産活動の収支</b>になります。元の金額は各行に小さく添えています。'
+    : 'TKCから取り込んだ<b>全額</b>（福祉事業の分も込み）を出しています。<b>会計ソフトと突き合わせる</b>ときはこちらです。'
+      + '共通の経費がそのまま引かれるので、残高は生産活動の収支とは一致しません。';
+
+  const mi = monthIncomeMap();
   let inS=0,outS=0,wS=0,bal=0;
   const rows = list.map(e=>{
-    const inAmt = e.t==='in' ? e.a : 0;
-    const outAmt = (e.t==='out'||e.t==='wage') ? e.a : 0;
-    inS+=inAmt; if(e.t==='out')outS+=e.a; if(e.t==='wage')wS+=e.a;
+    const ym = e.d.slice(0,7);
+    const r = mi[ym] || {income:0, welfare:0};
+    // 共通の経費だけ、生産活動が負担する割合をかける
+    const isCommon = e.t==='out' && (!e.j || e.j===COMMON_JOB.id);
+    const ratio = (view==='prod' && isCommon) ? prodRatioOf(e, r.income, r.welfare) : 1;
+    const amt = e.a * ratio;
+    const inAmt = e.t==='in' ? amt : 0;
+    const outAmt = (e.t==='out'||e.t==='wage') ? amt : 0;
+    inS+=inAmt; if(e.t==='out')outS+=amt; if(e.t==='wage')wS+=amt;
     bal += inAmt - outAmt;
-    return {e, inAmt, outAmt, bal};
+    return {e, inAmt, outAmt, bal, ratio};
   });
   document.getElementById('lsCount').textContent =
-    `${list.length}件 ／ 売上 ${yen(inS)}・経費 ${yen(outS)}・工賃 ${yen(wS)}・差引 ${yen(inS-outS-wS)}`;
-
+    `${list.length}件 ／ 売上 ${yen(inS)}・経費 ${yen(Math.round(outS))}・工賃 ${yen(wS)}・差引 ${yen(Math.round(inS-outS-wS))}`;
 
   let h=`<thead><tr><th>日付</th><th style="text-align:left">摘要</th><th>作業</th><th>収入</th><th>支出</th><th>残高</th><th>入金日</th><th></th></tr></thead><tbody>`;
   if(!rows.length) h+=`<tr><td colspan="8" style="text-align:center;color:var(--sub);padding:24px">該当する明細がありません</td></tr>`;
   const shown = rows.length>500 ? rows.slice(-500) : rows;
   if(rows.length>500) h+=`<tr><td colspan="8" style="text-align:center;color:var(--sub)">…前 ${rows.length-500} 件は省略（絞り込んでください。残高には含まれています）</td></tr>`;
-  shown.forEach(({e,inAmt,outAmt,bal})=>{
+  shown.forEach(({e,inAmt,outAmt,bal,ratio})=>{
+    const note = ratio<1
+      ? `<br><span style="color:var(--sub);font-size:11px">全額 ${num(e.a)} × ${(ratio*100).toFixed(1)}%</span>` : '';
     h+=`<tr>
       <td>${e.d.replace(/-/g,'/')}</td>
       <td style="text-align:left">${esc(e.m||'')}</td>
       <td style="text-align:right">${esc(e.t==='wage'?'利用者工賃':jobName(e.j))}${e.t==='out'?`<br><span style="color:var(--sub);font-size:11px">${esc(costName(e.c))}</span>`:''}</td>
       <td class="num" style="color:var(--blue)">${inAmt?num(inAmt):''}</td>
-      <td class="num" style="color:var(--orange)">${outAmt?num(outAmt):''}</td>
-      <td class="num"><b>${num(bal)}</b></td>
+      <td class="num" style="color:var(--orange)">${outAmt?num(Math.round(outAmt)):''}${note}</td>
+      <td class="num"><b>${num(Math.round(bal))}</b></td>
       <td style="font-size:12px;color:var(--sub)">${e.p?e.p.replace(/-/g,'/'):''}</td>
       <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">直す</button></td>
     </tr>`;
