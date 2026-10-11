@@ -878,13 +878,25 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     <div class="setgrp" data-sg="trash">
       <div class="card">
         <h2>🗑 ゴミ箱</h2>
-        <p class="hint">設定から消した<b>科目・費目・作業・業者</b>がここに入ります。
-          パソコンのゴミ箱と同じで、<b>「戻す」を押せばいつでも元に戻せます</b>。<br>
-          ※ 取り込んだ<b>明細（金額のデータ）は消えていません</b>。ここに入るのは設定の項目だけです。</p>
+        <p class="hint">消した<b>明細（売上・経費・工賃）</b>と、設定から消した<b>科目・費目・作業・業者</b>がここに入ります。
+          パソコンのゴミ箱と同じで、<b>「戻す」を押せば何日たっても元に戻せます</b>。</p>
         <div class="tablewrap"><table id="trashTable"></table></div>
         <div class="row" style="margin-top:12px">
           <button class="btn sub" id="trashEmptyBtn" onclick="emptyTrash()">ゴミ箱を空にする</button>
         </div>
+      </div>
+
+      <div class="card">
+        <h2>📂 バックアップと見比べて、消えた明細を探す</h2>
+        <p class="hint">ゴミ箱ができる前に消してしまった明細は、<b>保存しておいたバックアップ</b>から探して戻せます。<br>
+          バックアップを選ぶと、<b>バックアップにはあるのに、いまは無い明細だけ</b>を一覧にします。
+          戻したいものにチェックを入れて「戻す」を押してください。<br>
+          <b>いまのデータは消えません</b>（バックアップの日付以降に入れた分もそのまま残ります）。</p>
+        <div class="row">
+          <button class="btn" onclick="document.getElementById('diffFile').click()">📂 バックアップを選んで見比べる</button>
+          <input type="file" id="diffFile" accept=".json" style="display:none" onchange="diffWithBackup(event)">
+        </div>
+        <div id="diffResult" style="margin-top:12px"></div>
       </div>
     </div><!-- /trash -->
   </section>
@@ -3206,9 +3218,11 @@ async function deleteEdit(){
   if(!confirm(`この明細を削除します。\n\n${what}\n`
     + `※ いま見ている表から外れるだけではありません。\n`
     + `　 出納帳・収支・入金票の<すべて>から無くなります。\n\n`
-    + `消したあとでも「↩ 元に戻す」で戻せます。\n\nよろしいですか？`)) return;
+    + `消したものは「設定 → 🗑 ゴミ箱」に入るので、何日たっても戻せます。\n\nよろしいですか？`)) return;
+  if(e) trashPush('entry', e, entryLabel(e));   // 消す前にゴミ箱へ
+  await saveMaster();
   await removeEntry(id);
-  closeModal('editModal'); toast('削除しました（元に戻せます）'); renderAll();
+  closeModal('editModal'); toast('ゴミ箱に入れました（設定 → ゴミ箱 から戻せます）'); renderAll();
 }
 
 /* ============ 入金票 ============ */
@@ -3606,7 +3620,12 @@ function jumpToTkc(){
 /* 設定から消した項目をここに退避しておき、あとから戻せるようにする。
    明細（金額のデータ）はここには入らない。 */
 const TRASH_MAX = 50;
-const TRASH_KIND = {tkc:'TKCの科目', cost:'費目', job:'作業', preset:'業者'};
+const TRASH_KIND = {entry:'明細', tkc:'TKCの科目', cost:'費目', job:'作業', preset:'業者'};
+/** 明細をゴミ箱に入れるときの表示名 */
+function entryLabel(e){
+  const kind = e.t==='in' ? '売上' : e.t==='wage' ? '工賃' : '経費';
+  return `${e.d.replace(/-/g,'/')}　${kind}　${e.m||'(摘要なし)'}　${yen(e.a)}`;
+}
 
 function trash(){ if(!Array.isArray(DB.settings.trash)) DB.settings.trash=[]; return DB.settings.trash; }
 function trashPush(kind, obj, label){
@@ -3615,11 +3634,20 @@ function trashPush(kind, obj, label){
   if(t.length > TRASH_MAX) t.length = TRASH_MAX;
 }
 /** ゴミ箱から元に戻す */
-function trashRestore(id){
+async function trashRestore(id){
   const t = trash();
   const i = t.findIndex(x=>x.id===id);
   if(i<0) return;
   const it = t[i], d = it.data;
+  if(it.kind==='entry'){
+    if(DB.entries.some(x=>x.id===d.id)){ alert('この明細はすでに戻っています。'); t.splice(i,1); saveMaster(); renderAll(); return; }
+    t.splice(i,1);
+    await saveMaster();
+    await putEntry(d);
+    renderAll();
+    toast(`明細を戻しました`);
+    return;
+  }
   if(it.kind==='tkc'){
     if(tkcAccounts().some(x=>x.code===d.code)){ alert(`科目「${d.code}」はすでに一覧にあります。`); return; }
     tkcAccounts().push(d);
@@ -3638,6 +3666,74 @@ function trashRestore(id){
   saveMaster(); renderAll();
   toast(`「${it.label}」を戻しました`);
 }
+/* ---- バックアップと見比べて、消えた明細だけを戻す ----
+   いまのデータは上書きしない。バックアップにあって、いま無い明細（IDで照合）だけを出す。 */
+let _diffMissing = [];
+async function diffWithBackup(ev){
+  const f = ev.target.files[0]; ev.target.value='';
+  if(!f) return;
+  let data;
+  try{
+    const text = (await f.text()).replace(/^﻿/, '');
+    data = JSON.parse(text);
+  }catch(err){ alert('バックアップを読めませんでした。\n「💾 バックアップを保存」で作ったファイルを選んでください。'); return; }
+  const ents = Array.isArray(data.entries) ? data.entries : [];
+  if(!ents.length){ alert('このファイルには明細が入っていません。'); return; }
+  const now = new Set(DB.entries.map(e=>e.id));
+  _diffMissing = ents.filter(e=>e && e.id && !now.has(e.id))
+                     .sort((a,b)=> (a.d||'').localeCompare(b.d||''));
+  renderDiffResult(f.name, ents.length);
+}
+function renderDiffResult(fname, total){
+  const box = document.getElementById('diffResult');
+  if(!_diffMissing.length){
+    box.innerHTML = `<div class="banner info">ℹ 「${esc(fname)}」（明細${total}件）と見比べました。
+      <b>消えている明細はありません。</b></div>`;
+    return;
+  }
+  const typeName = t => t==='in'?'売上':t==='wage'?'工賃':'経費';
+  let h = `<div class="banner warn">「${esc(fname)}」にあって、<b>いまは無い明細が ${_diffMissing.length}件</b> 見つかりました。
+    戻したいものにチェックを入れてください。<br>
+    <span style="font-size:12px">※ わざと消したもの（入力ミスの修正や、TKCで「取り込まない」にした分など）も混ざっています。必要なものだけ選んでください。</span></div>
+    <div class="row" style="margin:8px 0">
+      <label style="cursor:pointer"><input type="checkbox" onchange="document.querySelectorAll('.diffChk').forEach(c=>c.checked=this.checked);updateDiffSum()"> すべて選ぶ</label>
+      <button class="btn" onclick="restoreFromDiff()">↩ 選んだ明細を戻す</button>
+      <span id="diffSum" style="font-weight:700;color:var(--green-d)"></span>
+    </div>
+    <div class="tablewrap"><table><thead><tr><th></th><th>日付</th><th>種類</th><th>作業</th>
+      <th style="text-align:left">摘要</th><th>金額</th></tr></thead><tbody>`;
+  _diffMissing.forEach((e,i)=>{
+    h += `<tr>
+      <td style="text-align:center"><input type="checkbox" class="diffChk" value="${i}" onchange="updateDiffSum()" style="width:18px;height:18px;cursor:pointer"></td>
+      <td style="white-space:nowrap">${esc((e.d||'').replace(/-/g,'/'))}</td>
+      <td>${typeName(e.t)}</td>
+      <td style="text-align:right">${esc(e.t==='wage'?'利用者工賃':jobName(e.j))}</td>
+      <td style="text-align:left">${esc(e.m||'')}${e.tkc?'<br><span style="color:var(--sub);font-size:11px">TKCから取り込んだ分</span>':''}</td>
+      <td class="num">${num(e.a||0)}</td></tr>`;
+  });
+  box.innerHTML = h + `</tbody></table></div>`;
+}
+function updateDiffSum(){
+  const sel = [...document.querySelectorAll('.diffChk:checked')].map(c=>_diffMissing[+c.value]);
+  const el = document.getElementById('diffSum');
+  if(el) el.textContent = sel.length ? `選んだ ${sel.length}件　${yen(sel.reduce((s,e)=>s+(e.a||0),0))}` : '';
+}
+async function restoreFromDiff(){
+  const sel = [...document.querySelectorAll('.diffChk:checked')].map(c=>_diffMissing[+c.value]);
+  if(!sel.length){ alert('戻す明細にチェックを入れてください。'); return; }
+  const sum = sel.reduce((s,e)=>s+(e.a||0),0);
+  if(!confirm(`${sel.length}件（${yen(sum)}）を戻します。\n\nいまのデータはそのまま残ります（上書きしません）。\nよろしいですか？`)) return;
+  // 念のため、いま無いものだけを戻す（二重にしない）
+  const now = new Set(DB.entries.map(e=>e.id));
+  const list = sel.filter(e=>!now.has(e.id)).map(e=>JSON.parse(JSON.stringify(e)));
+  await putEntries(list);
+  const back = new Set(list.map(e=>e.id));
+  _diffMissing = _diffMissing.filter(e=>!back.has(e.id));
+  toast(`${list.length}件を戻しました`);
+  renderAll();
+  renderDiffResult('バックアップ', 0);
+}
+
 /** ゴミ箱から完全に消す */
 function trashDrop(id){
   const t = trash();
