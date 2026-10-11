@@ -214,6 +214,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
   <span class="spacer"></span>
   <span class="badge" id="wsBadge"></span>
   <span class="badge" id="syncBadge"></span>
+  <button class="hbtn" id="backupBtn" onclick="exportBackup()">💾 バックアップ</button>
   <button class="hbtn" id="undoBtn" onclick="doUndo()" disabled>↩ 元に戻す</button>
   <button class="hbtn" id="redoBtn" onclick="doRedo()" disabled>↪ やり直す</button>
   <button class="hbtn" id="installBtn" onclick="installApp()">⬇ デスクトップに追加</button>
@@ -875,13 +876,14 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <div class="tablewrap"><table id="tkcMonthTable"></table></div>
 
       <h3>💾 まるごとバックアップ</h3>
+      <p class="hint"><b>保存は、画面いちばん上の「💾 バックアップ」ボタン</b>からどの画面でもできます。
+        明細だけでなく、<b>作業・費目・業者・按分先・事業所名・決算整理までまるごと</b>保存します。</p>
       <div class="row">
-        <button class="btn sub" onclick="exportBackup()">💾 バックアップを保存</button>
         <button class="btn sub" onclick="document.getElementById('jsonFile').click()">📂 バックアップから復元</button>
         <input type="file" id="jsonFile" accept=".json" style="display:none" onchange="importBackup(event)">
       </div>
-      <p class="hint">明細だけでなく、<b>作業・費目・業者・按分先・事業所名・決算整理までまるごと</b>保存します。パソコンを替えるときや、消してしまったときの備えに。<br>
-        CSVは明細だけなので、元の状態に戻したいときはこちらを使ってください。</p>
+      <p class="hint">復元すると、いまのデータが<b>バックアップの時点の状態に置き換わります</b>。
+        消えた明細だけを戻したいときは「🗑 ゴミ箱」の「バックアップと見比べて、消えた明細を探す」を使ってください。</p>
 
     </div>
 
@@ -5063,9 +5065,14 @@ function daysSince(iso){
   return Math.round((b-a)/86400000);
 }
 function renderBackupNag(){
-  const el = document.getElementById('backupNag'); if(!el) return;
   const last = DB.settings.lastBackup;
   const d = daysSince(last);
+  // 上のバーのボタンに、最後に保存した日を出す
+  const btn = document.getElementById('backupBtn');
+  if(btn) btn.title = last
+    ? `明細・設定をまるごとファイルに保存します。\n最後の保存：${last.replace(/-/g,'/')}（${d===0?'今日':d+'日前'}）`
+    : '明細・設定をまるごとファイルに保存します。\nまだ保存した記録がありません';
+  const el = document.getElementById('backupNag'); if(!el) return;
   const need = DB.entries.length>0 && (d===null || d>=BACKUP_NAG_DAYS);
   if(!need || _backupNagHidden){ el.innerHTML=''; return; }
   el.innerHTML = `<div class="banner warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
