@@ -244,6 +244,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
 <main>
   <div id="modeBanner"></div>
+  <div id="backupNag" class="noprint"></div>
 
   <!-- ============ ホーム ============ -->
   <section id="view-home" class="view active">
@@ -573,6 +574,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
     <div class="card noprint">
       <h2>📑 決算書類（就労支援事業会計）</h2>
       <p class="hint">厚生労働省「就労支援の事業の会計処理の基準」に沿った帳票です。年間売上5,000万円以下で多種少額の生産活動を行うため、<b>表2・表3に代えて表4</b>を作成する簡便法を使っています。</p>
+      <div id="ksMissWarn"></div>
       <div class="row">
         <div class="grow" style="max-width:260px">
           <label class="lbl">年度</label>
@@ -859,6 +861,19 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         手入力で登録している経費の按分は、この下の「費目」の表の「①生産活動が負担する割合」で決めます。</p>
       <div id="tkcCheckBox"></div>
 
+      <h3>📅 月ごとの取り込み状況</h3>
+      <p class="hint">TKCのPDFは6か月ずつなので、<b>取り込み忘れの月</b>が出やすくなります。
+        特に<b>訓練等給付費が抜けている月</b>があると、按分の割合がくるい、生産活動に経費が多くのってしまいます。
+        決算の前に、12か月すべてそろっているか確かめてください。</p>
+      <div class="row" style="margin-bottom:8px">
+        <div class="grow" style="max-width:240px">
+          <label class="lbl">年度</label>
+          <select id="tkcMonthFy" onchange="renderTkcMonths()"></select>
+        </div>
+      </div>
+      <div id="tkcMonthNote"></div>
+      <div class="tablewrap"><table id="tkcMonthTable"></table></div>
+
       <h3>💾 まるごとバックアップ</h3>
       <div class="row">
         <button class="btn sub" onclick="exportBackup()">💾 バックアップを保存</button>
@@ -870,14 +885,6 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
     </div>
 
-    <div class="card danger">
-      <h2>⚠ 取り扱い注意</h2>
-      <div class="row">
-        <button class="btn warn" onclick="clearAll()">🗑 明細をすべて消す</button>
-      </div>
-      <p class="hint"><b>この事業所の明細をすべて</b>消します（作業・費目の設定は残ります）。
-        もとに戻せないので、先に「💾 バックアップを保存」しておいてください。</p>
-    </div>
     </div><!-- /data -->
 
     <div class="setgrp" data-sg="trash">
@@ -2496,12 +2503,38 @@ function saveFyData(){
   d.openMat=g('ksOpenMat'); d.closeMat=g('ksCloseMat');
   d.openWip=g('ksOpenWip'); d.closeWip=g('ksCloseWip');
   d.openProd=g('ksOpenProd'); d.closeProd=g('ksCloseProd');
-  d.koichinIn=g('ksKoichinIn'); d.koichinOut=g('ksKoichinOut'); d.koichinOpen=g('ksKoichinOpen');
-  d.setsubiIn=g('ksSetsubiIn'); d.setsubiOut=g('ksSetsubiOut'); d.setsubiOpen=g('ksSetsubiOpen');
+  d.koichinIn=g('ksKoichinIn'); d.koichinOut=g('ksKoichinOut');
+  d.setsubiIn=g('ksSetsubiIn'); d.setsubiOut=g('ksSetsubiOut');
+  // 前期繰越は、前年度から引き継いでいるときは保存しない（自動計算に任せる）
+  if(!reserveAuto(fy,'koichin')) d.koichinOpen=g('ksKoichinOpen');
+  if(!reserveAuto(fy,'setsubi')) d.setsubiOpen=g('ksSetsubiOpen');
   const avgEl = document.getElementById('ksKoichinAvg3y');
   if(avgEl) d.koichinAvg3y = Math.round(+avgEl.value)||0;
   saveMaster(); renderKessan();
 }
+/* ---- 積立金の前期繰越 ----
+   前期繰越＝前年度の当期末残高（会計上そう決まっている）。
+   アプリにそれより前の年度の積立金の記録があれば自動で引き継ぎ、
+   無ければ（アプリを使い始めた年度）手で入れた額を使う。
+   k は 'koichin'（工賃変動）か 'setsubi'（設備等整備）。 */
+function reserveRaw(fy, k){
+  const d = (DB.settings.fyData||{})[fy];
+  return !!(d && ((+d[k+'Open']||0) || (+d[k+'In']||0) || (+d[k+'Out']||0)));
+}
+/** その年度より前に、積立金の記録がある年度があるか */
+function reserveAuto(fy, k){
+  return Object.keys(DB.settings.fyData||{}).some(y => +y < fy && reserveRaw(+y, k));
+}
+function reserveOpen(fy, k){
+  if(reserveAuto(fy, k)) return reserveEnd(fy-1, k);       // 前年度の当期末残高を引き継ぐ
+  const d = (DB.settings.fyData||{})[fy];
+  return d ? (+d[k+'Open']||0) : 0;                       // 使い始めの年度は手入力
+}
+function reserveEnd(fy, k){
+  const d = (DB.settings.fyData||{})[fy] || {};
+  return reserveOpen(fy, k) + (+d[k+'In']||0) - (+d[k+'Out']||0);
+}
+
 /** 過去の年度ごとの賃金・工賃を覚えておく（年度をまたいで使う） */
 function setPastWage(fy, v){
   pastWages()[fy] = Math.round(+v)||0;
@@ -2517,6 +2550,20 @@ function periodLabel(fy){
 function renderKessan(){
   renderKessanSelectors();
   const fy = ksFyValue();
+  // 取り込み漏れの月があれば、決算の前に気づけるよう知らせる
+  {
+    const st = tkcMonthStatus(fy);
+    const risky = st.filter(r=>r.risky).map(r=>monthLabel(r.ym));
+    const miss  = st.filter(r=>r.sales>0 && !r.tkc).map(r=>monthLabel(r.ym));
+    const w = document.getElementById('ksMissWarn');
+    if(w) w.innerHTML = (risky.length || miss.length)
+      ? `<div class="banner warn">⚠ この年度は、TKCの取り込みが抜けている月があります`
+        + (risky.length ? `（訓練等給付費なし：${risky.join('・')}）` : '')
+        + (miss.length && !risky.length ? `（経費なし：${miss.join('・')}）` : '')
+        + `。按分の割合がくるうので、決算の前に取り込んでください。`
+        + ` <button class="btn sub" style="padding:3px 10px;font-size:12px" onclick="showTab('settings');jumpToTkc()">取り込み状況を見る</button></div>`
+      : '';
+  }
   const c = calcStd(fy);
   const d = c.d;
   // 決算整理欄に反映
@@ -2524,12 +2571,27 @@ function renderKessan(){
   st('ksOpenMat',d.openMat); st('ksCloseMat',d.closeMat);
   st('ksOpenWip',d.openWip); st('ksCloseWip',d.closeWip);
   st('ksOpenProd',d.openProd); st('ksCloseProd',d.closeProd);
-  st('ksKoichinIn',d.koichinIn); st('ksKoichinOut',d.koichinOut); st('ksKoichinOpen',d.koichinOpen);
-  st('ksSetsubiIn',d.setsubiIn); st('ksSetsubiOut',d.setsubiOut); st('ksSetsubiOpen',d.setsubiOpen);
+  st('ksKoichinIn',d.koichinIn); st('ksKoichinOut',d.koichinOut);
+  st('ksSetsubiIn',d.setsubiIn); st('ksSetsubiOut',d.setsubiOut);
   st('ksKoichinAvg3y', d.koichinAvg3y);
+  // 前期繰越：前年度から引き継げるときは自動（書き換え不可）、使い始めの年度は手入力
+  const koOpen = reserveOpen(fy,'koichin'), seOpen = reserveOpen(fy,'setsubi');
+  [['ksKoichinOpen','koichin',koOpen],['ksSetsubiOpen','setsubi',seOpen]].forEach(([id,k,v])=>{
+    const el = document.getElementById(id); if(!el) return;
+    const auto = reserveAuto(fy,k);
+    el.value = v||0;
+    el.readOnly = auto;
+    el.style.background = auto ? '#f0f2f5' : '';
+    el.title = auto ? `${fy-1}年度の当期末残高から自動で引き継いでいます` : 'アプリを使い始めた年度なので、前期繰越を入れてください';
+    const lbl = el.parentElement && el.parentElement.querySelector('.lbl');
+    if(lbl){
+      const base = lbl.dataset.base || lbl.textContent; lbl.dataset.base = base;
+      lbl.innerHTML = esc(base) + (auto ? ` <span style="color:var(--green-d);font-weight:400">（${fy-1}年度から自動）</span>` : '');
+    }
+  });
   // 当期末残高＝前期繰越＋当期積立−当期取崩
-  st('ksKoichinEnd', (d.koichinOpen||0)+(d.koichinIn||0)-(d.koichinOut||0));
-  st('ksSetsubiEnd', (d.setsubiOpen||0)+(d.setsubiIn||0)-(d.setsubiOut||0));
+  st('ksKoichinEnd', koOpen+(d.koichinIn||0)-(d.koichinOut||0));
+  st('ksSetsubiEnd', seOpen+(d.setsubiIn||0)-(d.setsubiOut||0));
 
   // ---- 工賃変動積立金：過去3年の実績と上限 ----
   const lim = koichinLimit(fy);
@@ -2561,7 +2623,7 @@ function renderKessan(){
       koichinLimEl.innerHTML = 'ℹ 上の表に過去の実績を入れると、年間・残高の上限をここに表示します。';
     }else{
       const over = (d.koichinIn||0) - lim.yearLimit;
-      const overEnd = ((d.koichinOpen||0)+(d.koichinIn||0)-(d.koichinOut||0)) - lim.totalLimit;
+      const overEnd = (reserveOpen(fy,'koichin')+(d.koichinIn||0)-(d.koichinOut||0)) - lim.totalLimit;
       koichinLimEl.className = (over>0 || overEnd>0) ? 'banner warn' : 'banner info';
       koichinLimEl.innerHTML =
         `${(over>0||overEnd>0)?'⚠':'ℹ'} 3年平均 <b>${num(lim.avg)}</b> から算出した上限です。<br>`
@@ -2863,8 +2925,8 @@ async function exportKessanExcel(){
 
   // ---------- 別紙3・別紙4（積立金・積立資産の明細表） ----------
   // 工賃変動と設備等整備の2区分。行は 前期繰越/当期積立/当期取崩/当期末残高 の順。
-  const ko = {open:d.koichinOpen||0, in:d.koichinIn||0, out:d.koichinOut||0};
-  const se = {open:d.setsubiOpen||0, in:d.setsubiIn||0, out:d.setsubiOut||0};
+  const ko = {open:reserveOpen(fy,'koichin'), in:d.koichinIn||0, out:d.koichinOut||0};
+  const se = {open:reserveOpen(fy,'setsubi'), in:d.setsubiIn||0, out:d.setsubiOut||0};
   ko.end = ko.open + ko.in - ko.out;
   se.end = se.open + se.in - se.out;
   const tot = {open:ko.open+se.open, in:ko.in+se.in, out:ko.out+se.out, end:ko.end+se.end};
@@ -3468,6 +3530,7 @@ function renderSettings(){
   renderWageAlloc();
 
   renderTrash();
+  renderTkcMonths();
 
   // どのグループを開いているか（前に開いていたものを覚えておく）
   if(!document.querySelector('#view-settings .setgrp.active')){
@@ -4191,25 +4254,6 @@ async function applyExcelImport(mode){
 }
 
 /** 試験運用中の一時的な機能：この事業所の明細をすべて消す（作業・費目の設定は残す） */
-async function clearAll(){
-  const n = DB.entries.length;
-  if(!n){ toast('消す明細がありません'); return; }
-  if(!confirm(`この事業所の明細 ${n} 件をすべて消します。もとに戻せません。よろしいですか？`)) return;
-  if(!confirm('本当に消してよろしいですか？')) return;
-  const ids = DB.entries.map(e=>e.id);
-  DB.entries = []; saveLocal();
-  if(cloudOn()){
-    try{
-      for(let i=0;i<ids.length;i+=400){
-        const b = window._fbDb.batch();
-        ids.slice(i,i+400).forEach(id=>b.delete(entCol().doc(id)));
-        await b.commit();
-      }
-    }catch(e){ console.error(e); setSync('⚠ 同期エラー'); }
-  }
-  renderAll(); toast(`${n}件すべて消しました`);
-}
-
 function parseCsv(text){
   const rows=[]; let row=[], cell='', q=false;
   text = text.replace(/^﻿/,'');
@@ -4708,6 +4752,56 @@ function tkcEntriesOf(code){
     return !dept || sameDeptCode(p.dept, dept);
   });
 }
+/* ---- 月ごとの取り込み状況（取り込み漏れチェック） ----
+   年度の12か月それぞれで、売上・TKCの経費・訓練等給付費がそろっているかを見る。
+   給付費が抜けた月は按分の分母が小さくなり、生産活動に経費が多くのる。 */
+function tkcMonthStatus(fy){
+  const welfare = DB.settings.welfareIncome || {};
+  return fyMonths(fy).map(ym=>{
+    const sales = DB.entries.filter(e=>e.t==='in' && e.d.slice(0,7)===ym).reduce((s,e)=>s+e.a,0);
+    const tkc   = DB.entries.filter(e=>e.tkc && e.d.slice(0,7)===ym).length;
+    const wel   = +welfare[ym] || 0;
+    return {ym, sales, tkc, wel, risky: sales>0 && !wel};
+  });
+}
+function renderTkcMonths(){
+  const sel = document.getElementById('tkcMonthFy');
+  const tbl = document.getElementById('tkcMonthTable');
+  if(!sel || !tbl) return;
+  // 年度の候補：TKCの取り込みか売上がある年度。初めは「TKCを取り込んだいちばん新しい年度」
+  const fys = allFys();
+  const keep = sel.value;
+  sel.innerHTML = fys.map(fy=>`<option value="${fy}">${fyLabel(fy)}</option>`).join('');
+  if(keep && fys.includes(+keep)) sel.value = keep;
+  else {
+    const withTkc = fys.filter(fy=>tkcMonthStatus(fy).some(m=>m.tkc||m.wel));
+    sel.value = String(withTkc.length ? withTkc[0] : fys[0]);
+  }
+  const rows = tkcMonthStatus(+sel.value);
+  const mark = ok => ok ? '<span style="color:var(--green-d);font-weight:700">✅</span>' : '<span style="color:#c62828;font-weight:700">❌</span>';
+  let h = `<thead><tr><th style="text-align:left">月</th><th>売上（出納帳）</th><th>TKCの経費</th><th>訓練等給付費</th></tr></thead><tbody>`;
+  rows.forEach(r=>{
+    h += `<tr${r.risky?' style="background:#fff4f4"':''}>
+      <td style="text-align:left;white-space:nowrap">${monthLabelFull(r.ym)}</td>
+      <td class="num">${r.sales?num(r.sales):'<span style="color:var(--sub)">—</span>'}</td>
+      <td style="text-align:center">${mark(r.tkc>0)}${r.tkc?`<span style="color:var(--sub);font-size:11px"> ${r.tkc}件</span>`:''}</td>
+      <td style="text-align:center">${mark(r.wel>0)}${r.wel?`<span style="color:var(--sub);font-size:11px"> ${num(r.wel)}</span>`:''}</td>
+    </tr>`;
+  });
+  tbl.innerHTML = h + `</tbody>`;
+  const missTkc = rows.filter(r=>r.sales>0 && !r.tkc).map(r=>monthLabel(r.ym));
+  const risky   = rows.filter(r=>r.risky).map(r=>monthLabel(r.ym));
+  const note = document.getElementById('tkcMonthNote');
+  if(!risky.length && !missTkc.length){
+    note.innerHTML = `<div class="banner info">✅ 売上のある月は、TKCの経費も訓練等給付費もそろっています。</div>`;
+  }else{
+    note.innerHTML = `<div class="banner warn">⚠ `
+      + (risky.length ? `<b>${risky.join('・')}</b> は売上があるのに<b>訓練等給付費がありません</b>。按分の割合がくるいます。<br>` : '')
+      + (missTkc.length ? `<b>${missTkc.join('・')}</b> は売上があるのに<b>TKCの経費を取り込んでいません</b>。<br>` : '')
+      + `その月を含むTKCのPDFを「🏢 TKCのPDFを読み込む」から取り込んでください（二重にはなりません）。</div>`;
+  }
+}
+
 /** 明細が持つ鍵（部門|科目|年月）をばらす */
 function tkcKeyParts(e){
   if(!e || !e.tkc) return null;
@@ -4950,8 +5044,37 @@ function exportReportCsv(){
 
 function exportBackup(){
   const name = (DB.settings.officeName||'').trim();
+  // 保存した日を覚えておく（2週間あいたら知らせるため）。ほかのパソコンとも共有される
+  DB.settings.lastBackup = todayISO();
+  saveMaster();
   downloadFile(`バックアップ_${name?name+'_':''}${todayISO()}.json`, JSON.stringify(DB,null,1), 'application/json');
   toast('バックアップを保存しました');
+  renderBackupNag();
+}
+
+/* ---- バックアップの催促 ----
+   ブラウザの決まりで、自動でファイルに保存することはできない。
+   そのかわり、最後に保存してから2週間たったら画面上部で知らせる。 */
+const BACKUP_NAG_DAYS = 14;
+let _backupNagHidden = false;   // 「あとで」を押したら、このページを開いているあいだは出さない
+function daysSince(iso){
+  if(!iso) return null;
+  const a = new Date(iso+'T00:00:00'), b = new Date(todayISO()+'T00:00:00');
+  return Math.round((b-a)/86400000);
+}
+function renderBackupNag(){
+  const el = document.getElementById('backupNag'); if(!el) return;
+  const last = DB.settings.lastBackup;
+  const d = daysSince(last);
+  const need = DB.entries.length>0 && (d===null || d>=BACKUP_NAG_DAYS);
+  if(!need || _backupNagHidden){ el.innerHTML=''; return; }
+  el.innerHTML = `<div class="banner warn" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+    <span>💾 ${d===null ? 'このアプリでバックアップを保存した記録がありません。'
+                         : `最後のバックアップから <b>${d}日</b> たっています（${last.replace(/-/g,'/')}）。`}
+      万一のときに備えて、保存しておきましょう。</span>
+    <button class="btn" style="padding:6px 14px" onclick="exportBackup()">💾 いま保存する</button>
+    <button class="btn sub" style="padding:6px 12px;font-size:12px" onclick="_backupNagHidden=true;renderBackupNag()">あとで</button>
+  </div>`;
 }
 
 /** バックアップ（JSON）から、明細も設定もまるごと戻す */
@@ -5059,6 +5182,7 @@ function renderAll(){
   if(t==='kessan') renderKessan();
   if(t==='settings') renderSettings();
   updateModeBanner();
+  renderBackupNag();
 }
 
 /* ============ PWA ============ */
