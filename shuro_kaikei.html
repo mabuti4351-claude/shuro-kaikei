@@ -550,6 +550,15 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <button class="btn" onclick="applyBulkDeposit()">📌 選んだ分にまとめて入金日を入れる</button>
         <span id="dpSelSum" style="font-weight:700;color:var(--green-d)"></span>
       </div>
+      <div class="row noprint" style="margin-top:8px">
+        <button class="btn sub" onclick="bulkNoCash()">選んだ分を「現金入金ではない」にして一覧から外す</button>
+        <span class="hint" id="dpOffInfo" style="margin:0"></span>
+      </div>
+      <p class="hint noprint">振込や本社経由など、<b>現金で受け取らない売上</b>はここから外せます。
+        <b>明細は消えません</b>（出納帳・収支にはそのまま残ります）。あとから一覧に戻すこともできます。</p>
+      <div class="row noprint" id="dpShowOffBox" style="display:none">
+        <label style="cursor:pointer"><input type="checkbox" id="dpShowOff" onchange="renderDeposit()"> 外したものも表示する</label>
+      </div>
       <div class="tablewrap"><table id="dpPending"></table></div>
     </div>
   </section>
@@ -3244,7 +3253,16 @@ function renderDeposit(){
   if(bulkDate && !bulkDate.value) bulkDate.value = todayISO();
   const allChk=document.getElementById('dpAll'); if(allChk) allChk.checked=false;
 
-  const pendAll=DB.entries.filter(e=>e.t==='in' && !e.p);
+  // 現金で入金されない売上（振込・本社経由など）は、印をつけて一覧から外せる。
+  // 明細そのものは消さない。
+  const showOff = document.getElementById('dpShowOff') && document.getElementById('dpShowOff').checked;
+  const offCount = DB.entries.filter(e=>e.t==='in' && !e.p && e.nocash).length;
+  const offInfo = document.getElementById('dpOffInfo');
+  if(offInfo) offInfo.textContent = offCount ? `現金入金ではない として外している売上：${offCount}件` : '';
+  const offBox = document.getElementById('dpShowOffBox');
+  if(offBox) offBox.style.display = offCount ? '' : 'none';
+
+  const pendAll=DB.entries.filter(e=>e.t==='in' && !e.p && (showOff || !e.nocash));
 
   // 月の絞り込み（未入金の中にある月だけを候補にする）
   const monthSel=document.getElementById('dpPendMonth');
@@ -3261,9 +3279,15 @@ function renderDeposit(){
   let p=`<thead><tr><th class="noprint" style="width:40px"></th><th>日付</th><th>作業</th><th style="text-align:left">メモ</th><th>金額</th><th class="noprint"></th></tr></thead><tbody>`;
   if(!pend.length) p+=`<tr><td colspan="6" style="text-align:center;color:var(--sub);padding:16px">${pendAll.length?'この月にはありません':'ありません 👍'}</td></tr>`;
   pend.slice(0,60).forEach(e=>{
-    p+=`<tr><td class="noprint" style="text-align:center"><input type="checkbox" class="dpChk" value="${e.id}" data-a="${e.a}" onchange="updateDpSelSum()" style="width:18px;height:18px;cursor:pointer"></td>
-        <td>${e.d.replace(/-/g,'/')}</td><td style="text-align:right">${esc(jobName(e.j))}</td><td style="text-align:left">${esc(e.m||'')}</td><td class="num">${num(e.a)}</td>
-        <td class="noprint"><button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">1件ずつ直す</button></td></tr>`;
+    const off = !!e.nocash;
+    p+=`<tr${off?' style="opacity:.55"':''}><td class="noprint" style="text-align:center"><input type="checkbox" class="dpChk" value="${e.id}" data-a="${e.a}" onchange="updateDpSelSum()" style="width:18px;height:18px;cursor:pointer"></td>
+        <td>${e.d.replace(/-/g,'/')}</td><td style="text-align:right">${esc(jobName(e.j))}</td>
+        <td style="text-align:left">${esc(e.m||'')}${off?'<br><span style="color:var(--sub);font-size:11px">現金入金ではない（一覧から外しています）</span>':''}</td>
+        <td class="num">${num(e.a)}</td>
+        <td class="noprint" style="white-space:nowrap">
+          <button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="setNoCash('${e.id}',${off?'false':'true'})"
+            title="${off?'入金待ちの一覧に戻します':'振込など現金で受け取らない売上を、この一覧から外します。明細は消えません'}">${off?'↩ 一覧に戻す':'現金入金ではない'}</button>
+          <button class="btn sub" style="padding:4px 10px;font-size:12px" onclick="openEdit('${e.id}')">直す</button></td></tr>`;
   });
   if(pend.length>60) p+=`<tr><td colspan="6" style="text-align:center;color:var(--sub)">…ほか ${pend.length-60} 件（月でしぼってください）</td></tr>`;
   document.getElementById('dpPending').innerHTML=p+`</tbody>`;
@@ -3283,6 +3307,31 @@ function updateDpSelSum(){
   const sel=[...document.querySelectorAll('#dpPending .dpChk:checked')];
   const sum=sel.reduce((s,c)=>s+(+c.dataset.a||0),0);
   el.textContent = sel.length ? `選んだ ${sel.length}件　${yen(sum)}` : '';
+}
+/**
+ * 現金で入金されない売上（振込・本社経由など）を、入金待ちの一覧から外す／戻す。
+ * 明細そのものには手を付けない。印をつけるだけ。
+ */
+async function setNoCash(id, on){
+  const e = DB.entries.find(x=>x.id===id); if(!e) return;
+  const ne = Object.assign({}, e);
+  if(on) ne.nocash = true; else delete ne.nocash;
+  await putEntry(ne);
+  toast(on ? '一覧から外しました（明細は残っています）' : '一覧に戻しました');
+  renderAll();
+}
+/** チェックした分をまとめて一覧から外す */
+async function bulkNoCash(){
+  const ids=[...document.querySelectorAll('#dpPending .dpChk:checked')].map(c=>c.value);
+  if(!ids.length){ alert('外す行にチェックを入れてください。'); return; }
+  const sum = ids.reduce((s,id)=>{ const e=DB.entries.find(x=>x.id===id); return s+(e?e.a:0); },0);
+  if(!confirm(`${ids.length}件（${yen(sum)}）を「現金入金ではない」として、この一覧から外します。\n\n`
+    + `※ 明細は消えません。出納帳・収支にはそのまま残ります。\n`
+    + `　 あとから「一覧に戻す」で戻せます。\n\nよろしいですか？`)) return;
+  const list = ids.map(id=>Object.assign({}, DB.entries.find(x=>x.id===id), {nocash:true}));
+  await putEntries(list);
+  toast(`${list.length}件を一覧から外しました`);
+  renderAll();
 }
 /** チェックした売上に、まとめて同じ入金日を入れる */
 async function applyBulkDeposit(){
