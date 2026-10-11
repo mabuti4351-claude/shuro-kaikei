@@ -1004,7 +1004,8 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
       <button class="btn" onclick="saveEdit()">保存</button>
       <button class="btn sub" onclick="closeModal('editModal')">キャンセル</button>
       <span class="spacer" style="flex:1"></span>
-      <button class="btn warn" onclick="deleteEdit()">この行を消す</button>
+      <button class="btn warn" onclick="deleteEdit()"
+        title="この明細そのものを消します。入金票だけでなく、出納帳や収支からも無くなります">🗑 この明細を削除</button>
     </div>
   </div>
 </div>
@@ -3189,9 +3190,16 @@ async function saveEdit(){
 }
 async function deleteEdit(){
   const id=document.getElementById('edId').value;
-  if(!confirm('この行を消します。よろしいですか？')) return;
+  const e = DB.entries.find(x=>x.id===id);
+  const what = e
+    ? `${e.d.replace(/-/g,'/')}　${e.m||'(摘要なし)'}　${yen(e.a)}\n`
+    : '';
+  if(!confirm(`この明細を削除します。\n\n${what}\n`
+    + `※ いま見ている表から外れるだけではありません。\n`
+    + `　 出納帳・収支・入金票の<すべて>から無くなります。\n\n`
+    + `消したあとでも「↩ 元に戻す」で戻せます。\n\nよろしいですか？`)) return;
   await removeEntry(id);
-  closeModal('editModal'); toast('消しました'); renderAll();
+  closeModal('editModal'); toast('削除しました（元に戻せます）'); renderAll();
 }
 
 /* ============ 入金票 ============ */
