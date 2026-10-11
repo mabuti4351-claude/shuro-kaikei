@@ -68,6 +68,11 @@ nav.tabs .tabsep{flex:0 0 auto;width:1px;background:var(--line);margin:4px 4px;a
 .setgrp .card h3{margin-top:22px;padding-top:14px;border-top:1px dashed var(--line);font-size:16px}
 .setgrp .card h3:first-of-type{margin-top:18px}
 
+/* 入金票：未入金が0件のときは見出しだけにする */
+#dpPendCard.dpEmpty > *:not(h3){display:none}
+#dpPendCard.dpEmpty{padding-top:12px;padding-bottom:12px}
+#dpPendCard.dpEmpty h3{margin:0;color:var(--green-d)}
+
 main{max-width:1080px;margin:0 auto;padding:16px 14px 80px}
 .view{display:none}
 .view.active{display:block}
@@ -513,22 +518,7 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
 
   <!-- ============ 入金票 ============ -->
   <section id="view-deposit" class="view">
-    <div class="card noprint">
-      <h2>🧾 入金票</h2>
-      <p class="hint">本部へお金を渡した日を選ぶと、その日ぶんの内訳が出ます。そのまま印刷できます。</p>
-      <div class="row">
-        <div class="grow" style="max-width:220px">
-          <label class="lbl">入金日</label>
-          <select id="dpDate" onchange="renderDeposit()"></select>
-        </div>
-        <button class="btn sub" onclick="window.print()">🖨 印刷</button>
-      </div>
-    </div>
-    <div class="card" id="dpCard">
-      <div id="dpBody"></div>
-    </div>
-
-    <div class="card noprint">
+    <div class="card noprint" id="dpPendCard">
       <h3>⚠ 入金日がまだ入っていない売上<span id="dpPendCount" class="badge" style="color:var(--orange);margin-left:8px"></span></h3>
       <p class="hint">まとめて本部へ渡したときは、渡した分にチェックを入れて、下の日付を選んでボタンを押してください。1件ずつ開かなくても入金日が入ります。</p>
       <div class="row" style="margin-bottom:10px">
@@ -560,6 +550,21 @@ tr.total td{font-weight:700;background:#f7f9fb;border-top:2px solid var(--ink)}
         <label style="cursor:pointer"><input type="checkbox" id="dpShowOff" onchange="renderDeposit()"> 外したものも表示する</label>
       </div>
       <div class="tablewrap"><table id="dpPending"></table></div>
+    </div>
+
+    <div class="card noprint">
+      <h2>🧾 入金票</h2>
+      <p class="hint">本部へお金を渡した日を選ぶと、その日ぶんの内訳が出ます。そのまま印刷できます。</p>
+      <div class="row">
+        <div class="grow" style="max-width:220px">
+          <label class="lbl">入金日</label>
+          <select id="dpDate" onchange="renderDeposit()"></select>
+        </div>
+        <button class="btn sub" onclick="window.print()">🖨 印刷</button>
+      </div>
+    </div>
+    <div class="card" id="dpCard">
+      <div id="dpBody"></div>
     </div>
   </section>
 
@@ -3308,6 +3313,19 @@ function renderDeposit(){
 
   const cnt=document.getElementById('dpPendCount');
   if(cnt) cnt.textContent = pendAll.length ? `のこり ${pendAll.length}件` : '';
+  // 0件のときは見出しと一言だけにして、下の入金票を押し下げない
+  const card = document.getElementById('dpPendCard');
+  if(card){
+    const empty = !pendAll.length && !showOff;
+    card.classList.toggle('dpEmpty', empty);
+    const head = card.querySelector('h3');
+    if(head) head.innerHTML = empty
+      ? `✅ 入金日を入れていない売上はありません`
+        + (offCount ? `<span class="badge" style="margin-left:8px;color:var(--sub)">（現金入金ではない ${offCount}件は外しています）</span>` : '')
+        + `<button class="btn sub" style="padding:3px 10px;font-size:12px;margin-left:10px" onclick="document.getElementById('dpShowOff').checked=true;renderDeposit()">外したものを見る</button>`
+      : `⚠ 入金日がまだ入っていない売上<span id="dpPendCount" class="badge" style="color:var(--orange);margin-left:8px">のこり ${pendAll.length}件</span>`;
+    if(empty && !offCount){ const b=head.querySelector('button'); if(b) b.remove(); }
+  }
   updateDpSelSum();
 }
 
